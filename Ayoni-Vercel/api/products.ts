@@ -1,6 +1,5 @@
 import { adminDb, errorResponse, json, requireAdmin } from '../lib/supabase.js';
-import { seedProducts } from '../lib/products';
-
+import { seedProducts } from '../lib/products.js';
 export async function GET() {
   const { data, error } = await adminDb.from('products').select('*').order('created_at', { ascending: false });
   if (error) return errorResponse(error.message, 500);
