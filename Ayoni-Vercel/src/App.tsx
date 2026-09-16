@@ -1,4 +1,3 @@
-```tsx
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import {
   ArrowRight,
@@ -6,7 +5,6 @@ import {
   ImagePlus,
   LogIn,
   LogOut,
-  Package,
   Plus,
   RefreshCw,
   Search,
@@ -19,6 +17,7 @@ import {
 } from 'lucide-react';
 import { hasSupabase, supabase } from './supabase';
 import { seedProducts } from '../lib/products';
+
 type Product = {
   id: string;
   name: string;
@@ -32,11 +31,13 @@ type Product = {
   image_urls?: string[] | null;
   created_at?: string;
 };
+
 type CartItem = Product & {
   quantity: number;
   selectedSize?: string;
   selectedColor?: string;
 };
+
 type Order = {
   id: string;
   customer: {
@@ -52,33 +53,39 @@ type Order = {
   payment_status?: string;
   created_at?: string;
 };
+
 const formatPrice = (value: number) =>
   new Intl.NumberFormat('en-NG', {
     style: 'currency',
     currency: 'NGN',
     maximumFractionDigits: 0
   }).format(value);
+
 async function api(
   path: string,
   options: RequestInit = {}
 ): Promise<any> {
   let token = '';
+
   if (supabase) {
     const sessionResult = await supabase.auth.getSession();
     token =
       sessionResult.data.session?.access_token || '';
   }
+
   const headers = new Headers(options.headers);
 
   if (!(options.body instanceof FormData)) {
     headers.set('Content-Type', 'application/json');
   }
+
   if (token) {
     headers.set(
       'Authorization',
       'Bearer ' + token
     );
   }
+
   const response = await fetch(path, {
     ...options,
     headers
@@ -108,7 +115,7 @@ async function api(
 
   return data;
 }
-```
+
 function App() {
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -152,7 +159,7 @@ function App() {
       setProducts(
         seedProducts.map((product, i) => ({
           ...product,
-          id: `demo-${i + 1}`
+          id: 'demo-' + (i + 1)
         })) as Product[]
       );
     } finally {
@@ -161,8 +168,14 @@ function App() {
   }
 
   const categories = useMemo(() => {
-    const values = products.map((product) => product.category);
-    return ['All', ...Array.from(new Set(values))];
+    const values = products.map(
+      (product) => product.category
+    );
+
+    return [
+      'All',
+      ...Array.from(new Set(values))
+    ];
   }, [products]);
 
   const filteredProducts = useMemo(() => {
@@ -170,20 +183,24 @@ function App() {
 
     return products.filter((product) => {
       const matchesCategory =
-        category === 'All' || product.category === category;
+        category === 'All' ||
+        product.category === category;
 
       const matchesSearch =
         !term ||
         product.name.toLowerCase().includes(term) ||
         product.category.toLowerCase().includes(term) ||
-        product.description?.toLowerCase().includes(term);
+        product.description
+          ?.toLowerCase()
+          .includes(term);
 
       return matchesCategory && matchesSearch;
     });
   }, [products, search, category]);
 
   const cartTotal = cart.reduce(
-    (total, item) => total + item.price * item.quantity,
+    (total, item) =>
+      total + item.price * item.quantity,
     0
   );
 
@@ -194,12 +211,17 @@ function App() {
 
   function addToCart(product: Product) {
     setCart((current) => {
-      const existing = current.find((item) => item.id === product.id);
+      const existing = current.find(
+        (item) => item.id === product.id
+      );
 
       if (existing) {
         return current.map((item) =>
           item.id === product.id
-            ? { ...item, quantity: item.quantity + 1 }
+            ? {
+                ...item,
+                quantity: item.quantity + 1
+              }
             : item
         );
       }
@@ -213,7 +235,9 @@ function App() {
       ];
     });
 
-    setToast(`${product.name} added to cart`);
+    setToast(
+      product.name + ' added to cart'
+    );
 
     setTimeout(() => setToast(''), 2500);
   }
@@ -224,7 +248,10 @@ function App() {
     );
   }
 
-  function updateQuantity(id: string, quantity: number) {
+  function updateQuantity(
+    id: string,
+    quantity: number
+  ) {
     if (quantity <= 0) {
       removeFromCart(id);
       return;
@@ -232,21 +259,29 @@ function App() {
 
     setCart((current) =>
       current.map((item) =>
-        item.id === id ? { ...item, quantity } : item
+        item.id === id
+          ? { ...item, quantity }
+          : item
       )
     );
   }
 
-  async function submitOrder(event: FormEvent<HTMLFormElement>) {
+  async function submitOrder(
+    event: FormEvent<HTMLFormElement>
+  ) {
     event.preventDefault();
 
-    const form = new FormData(event.currentTarget);
+    const form = new FormData(
+      event.currentTarget
+    );
 
     const customer = {
       name: String(form.get('name') || ''),
       email: String(form.get('email') || ''),
       phone: String(form.get('phone') || ''),
-      address: String(form.get('address') || ''),
+      address: String(
+        form.get('address') || ''
+      ),
       city: String(form.get('city') || '')
     };
 
@@ -256,53 +291,74 @@ function App() {
     }
 
     try {
-      const shipping = await api('/api/orders', {
-        method: 'POST',
-        body: JSON.stringify({
-          customer,
-          items: cart,
-          total: cartTotal
-        })
-      });
+      const shipping = await api(
+        '/api/orders',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            customer,
+            items: cart,
+            total: cartTotal
+          })
+        }
+      );
 
       setCart([]);
       setShowCheckout(false);
       setShowCart(false);
 
       if (shipping?.paymentUrl) {
-        window.location.href = shipping.paymentUrl;
+        window.location.href =
+          shipping.paymentUrl;
         return;
       }
 
       const whatsappNumber =
-        import.meta.env.VITE_AYONI_WHATSAPP_NUMBER || '';
+        import.meta.env
+          .VITE_AYONI_WHATSAPP_NUMBER || '';
 
       if (whatsappNumber) {
         const message = [
           'Hello Ayoni, I would like to place an order.',
           '',
-          `Name: ${customer.name}`,
-          `Phone: ${customer.phone}`,
-          `City: ${customer.city}`,
+          'Name: ' + customer.name,
+          'Phone: ' + customer.phone,
+          'City: ' + customer.city,
           '',
           ...cart.map(
             (item) =>
-              `${item.name} x${item.quantity} — ${formatPrice(
+              item.name +
+              ' x' +
+              item.quantity +
+              ' — ' +
+              formatPrice(
                 item.price * item.quantity
-              )}`
+              )
           ),
           '',
-          `Total: ${formatPrice(cartTotal)}`
+          'Total: ' +
+            formatPrice(cartTotal)
         ].join('\n');
 
+        const cleanNumber =
+          whatsappNumber.replace(/\D/g, '');
+
+        const whatsappUrl =
+          'https://wa.me/' +
+          cleanNumber +
+          '?text=' +
+          encodeURIComponent(message);
+
         window.open(
-          `https://wa.me/${whatsappNumber.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`,
+          whatsappUrl,
           '_blank',
           'noopener,noreferrer'
         );
       }
 
-      setToast('Order received successfully.');
+      setToast(
+        'Order received successfully.'
+      );
     } catch (error) {
       setToast(
         error instanceof Error
@@ -317,22 +373,32 @@ function App() {
       <header className="sticky top-0 z-40 border-b border-white/10 bg-neutral-950/95 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 md:px-6">
           <button
-            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+            onClick={() =>
+              window.scrollTo({
+                top: 0,
+                behavior: 'smooth'
+              })
+            }
             className="text-2xl font-bold tracking-[0.2em]"
           >
             AYONI
           </button>
 
           <nav className="hidden items-center gap-8 md:flex">
-            <a href="#shop" className="text-sm text-white/70 hover:text-white">
+            <a
+              href="#shop"
+              className="text-sm text-white/70 hover:text-white"
+            >
               Shop
             </a>
+
             <a
               href="#manifesto"
               className="text-sm text-white/70 hover:text-white"
             >
               Manifesto
             </a>
+
             <button
               onClick={() => setShowAdmin(true)}
               className="text-sm text-white/70 hover:text-white"
@@ -343,7 +409,9 @@ function App() {
 
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setShowAccount(true)}
+              onClick={() =>
+                setShowAccount(true)
+              }
               className="rounded-full p-2 hover:bg-white/10"
               aria-label="Account"
             >
@@ -382,8 +450,10 @@ function App() {
               </h1>
 
               <p className="mt-7 max-w-xl text-lg leading-8 text-white/60">
-                Contemporary unisex fashion designed for movement,
-                expression and everyday confidence.
+                Contemporary unisex fashion
+                designed for movement,
+                expression and everyday
+                confidence.
               </p>
 
               <a
@@ -397,13 +467,19 @@ function App() {
 
             <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5">
               <div className="aspect-[4/5] flex items-center justify-center">
-                <ShoppingBag size={80} className="text-white/20" />
+                <ShoppingBag
+                  size={80}
+                  className="text-white/20"
+                />
               </div>
             </div>
           </div>
         </section>
 
-        <section id="shop" className="mx-auto max-w-7xl px-4 py-20 md:px-6">
+        <section
+          id="shop"
+          className="mx-auto max-w-7xl px-4 py-20 md:px-6"
+        >
           <div className="mb-10 flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
             <div>
               <p className="text-sm uppercase tracking-[0.3em] text-white/40">
@@ -417,11 +493,16 @@ function App() {
 
             <div className="flex flex-col gap-3 md:items-end">
               <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2">
-                <Search size={17} className="text-white/40" />
+                <Search
+                  size={17}
+                  className="text-white/40"
+                />
 
                 <input
                   value={search}
-                  onChange={(event) => setSearch(event.target.value)}
+                  onChange={(event) =>
+                    setSearch(event.target.value)
+                  }
                   placeholder="Search products"
                   className="w-52 bg-transparent text-sm outline-none placeholder:text-white/30"
                 />
@@ -431,12 +512,15 @@ function App() {
                 {categories.map((item) => (
                   <button
                     key={item}
-                    onClick={() => setCategory(item)}
-                    className={`rounded-full px-4 py-2 text-xs ${
-                      category === item
+                    onClick={() =>
+                      setCategory(item)
+                    }
+                    className={
+                      'rounded-full px-4 py-2 text-xs ' +
+                      (category === item
                         ? 'bg-white text-black'
-                        : 'border border-white/10 text-white/60 hover:text-white'
-                    }`}
+                        : 'border border-white/10 text-white/60 hover:text-white')
+                    }
                   >
                     {item}
                   </button>
@@ -447,7 +531,9 @@ function App() {
 
           {loading ? (
             <div className="flex min-h-[300px] items-center justify-center">
-              <RefreshCw className="animate-spin text-white/40" />
+              <RefreshCw
+                className="animate-spin text-white/40"
+              />
             </div>
           ) : filteredProducts.length === 0 ? (
             <div className="rounded-3xl border border-white/10 p-12 text-center text-white/50">
@@ -455,13 +541,17 @@ function App() {
             </div>
           ) : (
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {filteredProducts.map((product) => (
-                <ProductCard
-                  key={product.id}
-                  product={product}
-                  onAdd={() => addToCart(product)}
-                />
-              ))}
+              {filteredProducts.map(
+                (product) => (
+                  <ProductCard
+                    key={product.id}
+                    product={product}
+                    onAdd={() =>
+                      addToCart(product)
+                    }
+                  />
+                )
+              )}
             </div>
           )}
         </section>
@@ -471,16 +561,20 @@ function App() {
           className="border-y border-white/10 bg-white/[0.03]"
         >
           <div className="mx-auto max-w-5xl px-4 py-24 text-center md:px-6">
-            <ShieldCheck className="mx-auto mb-6 text-white/40" size={32} />
+            <ShieldCheck
+              className="mx-auto mb-6 text-white/40"
+              size={32}
+            />
 
             <h2 className="text-4xl font-bold md:text-6xl">
               Wear your identity.
             </h2>
 
             <p className="mx-auto mt-7 max-w-2xl text-lg leading-8 text-white/50">
-              Ayoni brings together modern clothing, footwear and
-              eyewear for people who want simple pieces with strong
-              character.
+              Ayoni brings together modern
+              clothing, footwear and eyewear
+              for people who want simple pieces
+              with strong character.
             </p>
           </div>
         </section>
@@ -488,14 +582,23 @@ function App() {
 
       <footer className="border-t border-white/10">
         <div className="mx-auto flex max-w-7xl flex-col gap-5 px-4 py-10 text-sm text-white/40 md:flex-row md:items-center md:justify-between md:px-6">
-          <p>© {new Date().getFullYear()} Ayoni. Ilorin, Kwara.</p>
+          <p>
+            © {new Date().getFullYear()} Ayoni.
+            Ilorin, Kwara.
+          </p>
 
           <div className="flex gap-5">
-            <button onClick={() => setShowAdmin(true)}>
+            <button
+              onClick={() => setShowAdmin(true)}
+            >
               Admin
             </button>
 
-            <button onClick={() => setShowAccount(true)}>
+            <button
+              onClick={() =>
+                setShowAccount(true)
+              }
+            >
               Account
             </button>
           </div>
@@ -511,6 +614,7 @@ function App() {
           onQuantity={updateQuantity}
           onCheckout={() => {
             if (!cart.length) return;
+
             setShowCart(false);
             setShowCheckout(true);
           }}
@@ -521,7 +625,9 @@ function App() {
         <Checkout
           cart={cart}
           total={cartTotal}
-          onClose={() => setShowCheckout(false)}
+          onClose={() =>
+            setShowCheckout(false)
+          }
           onSubmit={submitOrder}
         />
       )}
@@ -535,7 +641,11 @@ function App() {
       )}
 
       {showAccount && (
-        <Account onClose={() => setShowAccount(false)} />
+        <Account
+          onClose={() =>
+            setShowAccount(false)
+          }
+        />
       )}
 
       {toast && (
@@ -555,7 +665,9 @@ function ProductCard({
   onAdd: () => void;
 }) {
   const image =
-    product.image || product.image_urls?.[0] || '';
+    product.image ||
+    product.image_urls?.[0] ||
+    '';
 
   return (
     <article className="group overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03]">
@@ -568,7 +680,10 @@ function ProductCard({
           />
         ) : (
           <div className="flex h-full items-center justify-center">
-            <ImagePlus size={42} className="text-white/15" />
+            <ImagePlus
+              size={42}
+              className="text-white/15"
+            />
           </div>
         )}
 
@@ -610,7 +725,10 @@ function CartDrawer({
   total: number;
   onClose: () => void;
   onRemove: (id: string) => void;
-  onQuantity: (id: string, quantity: number) => void;
+  onQuantity: (
+    id: string,
+    quantity: number
+  ) => void;
   onCheckout: () => void;
 }) {
   return (
@@ -626,7 +744,10 @@ function CartDrawer({
             <p className="text-xs uppercase tracking-[0.2em] text-white/40">
               Shopping
             </p>
-            <h2 className="text-xl font-semibold">Your bag</h2>
+
+            <h2 className="text-xl font-semibold">
+              Your bag
+            </h2>
           </div>
 
           <button
@@ -644,6 +765,7 @@ function CartDrawer({
                 size={45}
                 className="text-white/20"
               />
+
               <p className="mt-4 text-white/50">
                 Your bag is empty.
               </p>
@@ -656,7 +778,8 @@ function CartDrawer({
                   className="flex gap-4 border-b border-white/10 pb-5"
                 >
                   <div className="h-24 w-20 overflow-hidden rounded-xl bg-white/5">
-                    {item.image || item.image_urls?.[0] ? (
+                    {item.image ||
+                    item.image_urls?.[0] ? (
                       <img
                         src={
                           item.image ||
@@ -676,7 +799,9 @@ function CartDrawer({
                       </h3>
 
                       <button
-                        onClick={() => onRemove(item.id)}
+                        onClick={() =>
+                          onRemove(item.id)
+                        }
                         className="text-white/30 hover:text-white"
                       >
                         <Trash2 size={16} />
@@ -726,7 +851,10 @@ function CartDrawer({
         {cart.length > 0 && (
           <div className="border-t border-white/10 p-5">
             <div className="mb-5 flex items-center justify-between">
-              <span className="text-white/50">Total</span>
+              <span className="text-white/50">
+                Total
+              </span>
+
               <span className="text-xl font-bold">
                 {formatPrice(total)}
               </span>
@@ -754,7 +882,9 @@ function Checkout({
   cart: CartItem[];
   total: number;
   onClose: () => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onSubmit: (
+    event: FormEvent<HTMLFormElement>
+  ) => void;
 }) {
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-neutral-950">
@@ -764,6 +894,7 @@ function Checkout({
             <p className="text-xs uppercase tracking-[0.2em] text-white/40">
               Ayoni
             </p>
+
             <h1 className="text-3xl font-bold">
               Checkout
             </h1>
@@ -778,7 +909,10 @@ function Checkout({
         </div>
 
         <div className="grid gap-10 md:grid-cols-[1fr_300px]">
-          <form onSubmit={onSubmit} className="space-y-5">
+          <form
+            onSubmit={onSubmit}
+            className="space-y-5"
+          >
             <input
               name="name"
               required
@@ -820,7 +954,8 @@ function Checkout({
               type="submit"
               className="w-full rounded-full bg-white py-4 font-semibold text-black hover:bg-white/80"
             >
-              Place order · {formatPrice(total)}
+              Place order ·{' '}
+              {formatPrice(total)}
             </button>
           </form>
 
@@ -841,7 +976,8 @@ function Checkout({
 
                   <span>
                     {formatPrice(
-                      item.price * item.quantity
+                      item.price *
+                        item.quantity
                     )}
                   </span>
                 </div>
@@ -851,7 +987,10 @@ function Checkout({
             <div className="mt-6 border-t border-white/10 pt-5">
               <div className="flex justify-between font-semibold">
                 <span>Total</span>
-                <span>{formatPrice(total)}</span>
+
+                <span>
+                  {formatPrice(total)}
+                </span>
               </div>
             </div>
           </div>
@@ -871,7 +1010,8 @@ function Admin({
   onProductsChanged: () => Promise<void>;
 }) {
   const [user, setUser] = useState<any>(null);
-  const [checking, setChecking] = useState(true);
+  const [checking, setChecking] =
+    useState(true);
 
   useEffect(() => {
     checkUser();
@@ -907,7 +1047,8 @@ function Admin({
         </h2>
 
         <p className="mt-3 text-white/50">
-          Configure the Supabase environment variables in Vercel.
+          Configure the Supabase environment
+          variables in Vercel.
         </p>
       </Modal>
     );
@@ -939,11 +1080,15 @@ function AdminLogin({
   onLogin: () => Promise<void>;
 }) {
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [password, setPassword] =
+    useState('');
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] =
+    useState(false);
 
-  async function submit(event: FormEvent) {
+  async function submit(
+    event: FormEvent
+  ) {
     event.preventDefault();
 
     if (!supabase) return;
@@ -951,10 +1096,11 @@ function AdminLogin({
     setLoading(true);
     setError('');
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password
-    });
+    const { error } =
+      await supabase.auth.signInWithPassword({
+        email,
+        password
+      });
 
     if (error) {
       setError(error.message);
@@ -976,7 +1122,8 @@ function AdminLogin({
         </h2>
 
         <p className="mt-2 text-white/50">
-          Sign in to manage Ayoni products and orders.
+          Sign in to manage Ayoni products
+          and orders.
         </p>
 
         <form
@@ -999,7 +1146,9 @@ function AdminLogin({
             required
             value={password}
             onChange={(event) =>
-              setPassword(event.target.value)
+              setPassword(
+                event.target.value
+              )
             }
             placeholder="Password"
             className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 outline-none"
@@ -1021,6 +1170,7 @@ function AdminLogin({
                 className="animate-spin"
               />
             )}
+
             Sign in
           </button>
         </form>
@@ -1038,16 +1188,23 @@ function AdminPanel({
   onClose: () => void;
   onProductsChanged: () => Promise<void>;
 }) {
-  const [editing, setEditing] = useState<Product | null>(null);
-  const [creating, setCreating] = useState(false);
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [loadingOrders, setLoadingOrders] = useState(false);
+  const [editing, setEditing] =
+    useState<Product | null>(null);
+  const [creating, setCreating] =
+    useState(false);
+  const [orders, setOrders] =
+    useState<Order[]>([]);
+  const [loadingOrders, setLoadingOrders] =
+    useState(false);
 
   async function loadOrders() {
     setLoadingOrders(true);
 
     try {
-      const result = await api('/api/orders');
+      const result = await api(
+        '/api/orders'
+      );
+
       setOrders(result.orders || []);
     } catch {
       setOrders([]);
@@ -1087,9 +1244,12 @@ function AdminPanel({
               <RefreshCw
                 size={15}
                 className={
-                  loadingOrders ? 'animate-spin' : ''
+                  loadingOrders
+                    ? 'animate-spin'
+                    : ''
                 }
               />
+
               Refresh
             </button>
 
@@ -1098,6 +1258,7 @@ function AdminPanel({
               className="flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-sm"
             >
               <LogOut size={15} />
+
               Logout
             </button>
           </div>
@@ -1116,7 +1277,9 @@ function AdminPanel({
             </div>
 
             <button
-              onClick={() => setCreating(true)}
+              onClick={() =>
+                setCreating(true)
+              }
               className="flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-medium text-black"
             >
               <Plus size={16} />
@@ -1160,12 +1323,16 @@ function AdminPanel({
                   </h4>
 
                   <p className="mt-2">
-                    {formatPrice(product.price)}
+                    {formatPrice(
+                      product.price
+                    )}
                   </p>
 
                   <div className="mt-4 flex gap-2">
                     <button
-                      onClick={() => setEditing(product)}
+                      onClick={() =>
+                        setEditing(product)
+                      }
                       className="flex flex-1 items-center justify-center gap-2 rounded-full border border-white/10 py-2 text-sm"
                     >
                       <Edit3 size={15} />
@@ -1176,7 +1343,9 @@ function AdminPanel({
                       onClick={async () => {
                         if (
                           !confirm(
-                            `Delete ${product.name}?`
+                            'Delete ' +
+                              product.name +
+                              '?'
                           )
                         ) {
                           return;
@@ -1184,7 +1353,8 @@ function AdminPanel({
 
                         try {
                           await api(
-                            `/api/products/${product.id}`,
+                            '/api/products/' +
+                              product.id,
                             {
                               method: 'DELETE'
                             }
@@ -1193,7 +1363,8 @@ function AdminPanel({
                           await onProductsChanged();
                         } catch (error) {
                           alert(
-                            error instanceof Error
+                            error instanceof
+                            Error
                               ? error.message
                               : 'Unable to delete product.'
                           );
@@ -1246,7 +1417,9 @@ function AdminPanel({
 
                     <div className="text-left md:text-right">
                       <p className="font-bold">
-                        {formatPrice(order.total)}
+                        {formatPrice(
+                          order.total
+                        )}
                       </p>
 
                       <p className="text-xs uppercase text-white/40">
@@ -1288,29 +1461,44 @@ function ProductEditor({
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
-  const [name, setName] = useState(product?.name || '');
-  const [category, setCategory] = useState(
-    product?.category || 'Clothing'
+  const [name, setName] = useState(
+    product?.name || ''
   );
+
+  const [category, setCategory] =
+    useState(
+      product?.category || 'Clothing'
+    );
+
   const [price, setPrice] = useState(
     product?.price?.toString() || ''
   );
-  const [description, setDescription] = useState(
-    product?.description || ''
-  );
+
+  const [description, setDescription] =
+    useState(
+      product?.description || ''
+    );
+
   const [sizes, setSizes] = useState(
     product?.sizes?.join(', ') || ''
   );
+
   const [colors, setColors] = useState(
     product?.colors?.join(', ') || ''
   );
-  const [file, setFile] = useState<File | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [preview, setPreview] = useState<string>(
-    product?.image ||
-      product?.image_urls?.[0] ||
-      ''
-  );
+
+  const [file, setFile] =
+    useState<File | null>(null);
+
+  const [saving, setSaving] =
+    useState(false);
+
+  const [preview, setPreview] =
+    useState<string>(
+      product?.image ||
+        product?.image_urls?.[0] ||
+        ''
+    );
 
   useEffect(() => {
     if (!file) {
@@ -1323,68 +1511,104 @@ function ProductEditor({
       return;
     }
 
-    const url = URL.createObjectURL(file);
+    const url =
+      URL.createObjectURL(file);
+
     setPreview(url);
 
-    return () => URL.revokeObjectURL(url);
+    return () =>
+      URL.revokeObjectURL(url);
   }, [file, product]);
 
-  async function saveProduct(event: FormEvent) {
+  async function saveProduct(
+    event: FormEvent
+  ) {
     event.preventDefault();
 
     if (!supabase) {
-      alert('Supabase is not connected.');
+      alert(
+        'Supabase is not connected.'
+      );
       return;
     }
 
     setSaving(true);
 
     try {
-      let image = product?.image || null;
+      let image =
+        product?.image || null;
 
       /*
-       * IMPORTANT:
-       * Upload directly from the browser to Supabase Storage.
-       * This avoids sending image data through Vercel.
+       * Upload directly from the browser
+       * to Supabase Storage.
        */
       if (file) {
-        if (file.size > 5 * 1024 * 1024) {
+        if (
+          file.size >
+          5 * 1024 * 1024
+        ) {
           throw new Error(
             'Image must be 5MB or smaller.'
           );
         }
 
-        if (!file.type.startsWith('image/')) {
+        if (
+          !file.type.startsWith(
+            'image/'
+          )
+        ) {
           throw new Error(
             'Please select a valid image file.'
           );
         }
 
         const extension =
-          file.name.split('.').pop()?.toLowerCase() ||
+          file.name
+            .split('.')
+            .pop()
+            ?.toLowerCase() ||
           'jpg';
 
-        const filePath = `products/${crypto.randomUUID()}.${extension}`;
+        const filePath =
+          'products/' +
+          crypto.randomUUID() +
+          '.' +
+          extension;
 
-        const { error: uploadError } =
+        const {
+          error: uploadError
+        } =
           await supabase.storage
             .from('product-images')
-            .upload(filePath, file, {
-              contentType: file.type,
-              cacheControl: '3600',
-              upsert: false
-            });
+            .upload(
+              filePath,
+              file,
+              {
+                contentType:
+                  file.type,
+                cacheControl:
+                  '3600',
+                upsert: false
+              }
+            );
 
         if (uploadError) {
-          throw new Error(uploadError.message);
+          throw new Error(
+            uploadError.message
+          );
         }
 
-        const { data: publicUrlData } =
+        const {
+          data: publicUrlData
+        } =
           supabase.storage
             .from('product-images')
-            .getPublicUrl(filePath);
+            .getPublicUrl(
+              filePath
+            );
 
-        image = publicUrlData.publicUrl;
+        image =
+          publicUrlData.publicUrl;
       }
 
       const payload = {
@@ -1395,26 +1619,42 @@ function ProductEditor({
         description,
         sizes: sizes
           .split(',')
-          .map((value) => value.trim())
+          .map((value) =>
+            value.trim()
+          )
           .filter(Boolean),
         colors: colors
           .split(',')
-          .map((value) => value.trim())
+          .map((value) =>
+            value.trim()
+          )
           .filter(Boolean),
         stock: product?.stock || {},
-        imageUrls: product?.image_urls || []
+        imageUrls:
+          product?.image_urls || []
       };
 
       if (product) {
-        await api(`/api/products/${product.id}`, {
-          method: 'PUT',
-          body: JSON.stringify(payload)
-        });
+        await api(
+          '/api/products/' +
+            product.id,
+          {
+            method: 'PUT',
+            body: JSON.stringify(
+              payload
+            )
+          }
+        );
       } else {
-        await api('/api/products', {
-          method: 'POST',
-          body: JSON.stringify(payload)
-        });
+        await api(
+          '/api/products',
+          {
+            method: 'POST',
+            body: JSON.stringify(
+              payload
+            )
+          }
+        );
       }
 
       await onSaved();
@@ -1475,6 +1715,7 @@ function ProductEditor({
                     className="mx-auto mb-2"
                     size={30}
                   />
+
                   <span className="text-sm">
                     Click to upload image
                   </span>
@@ -1487,14 +1728,16 @@ function ProductEditor({
                 className="hidden"
                 onChange={(event) =>
                   setFile(
-                    event.target.files?.[0] || null
+                    event.target.files?.[0] ||
+                      null
                   )
                 }
               />
             </label>
 
             <p className="mt-2 text-xs text-white/30">
-              JPG, PNG or WebP · Maximum 5MB
+              JPG, PNG or WebP · Maximum
+              5MB
             </p>
           </div>
 
@@ -1502,7 +1745,9 @@ function ProductEditor({
             required
             value={name}
             onChange={(event) =>
-              setName(event.target.value)
+              setName(
+                event.target.value
+              )
             }
             placeholder="Product name"
             className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 outline-none"
@@ -1511,7 +1756,9 @@ function ProductEditor({
           <select
             value={category}
             onChange={(event) =>
-              setCategory(event.target.value)
+              setCategory(
+                event.target.value
+              )
             }
             className="w-full rounded-xl border border-white/10 bg-neutral-900 px-4 py-3 outline-none"
           >
@@ -1526,7 +1773,9 @@ function ProductEditor({
             min="0"
             value={price}
             onChange={(event) =>
-              setPrice(event.target.value)
+              setPrice(
+                event.target.value
+              )
             }
             placeholder="Price"
             className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 outline-none"
@@ -1535,7 +1784,9 @@ function ProductEditor({
           <textarea
             value={description}
             onChange={(event) =>
-              setDescription(event.target.value)
+              setDescription(
+                event.target.value
+              )
             }
             rows={4}
             placeholder="Product description"
@@ -1545,7 +1796,9 @@ function ProductEditor({
           <input
             value={sizes}
             onChange={(event) =>
-              setSizes(event.target.value)
+              setSizes(
+                event.target.value
+              )
             }
             placeholder="Sizes — e.g. S, M, L, XL"
             className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 outline-none"
@@ -1554,7 +1807,9 @@ function ProductEditor({
           <input
             value={colors}
             onChange={(event) =>
-              setColors(event.target.value)
+              setColors(
+                event.target.value
+              )
             }
             placeholder="Colors — e.g. Black, White"
             className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 outline-none"
@@ -1589,7 +1844,8 @@ function Account({
 }: {
   onClose: () => void;
 }) {
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] =
+    useState<any>(null);
 
   useEffect(() => {
     loadUser();
@@ -1600,7 +1856,8 @@ function Account({
 
     const {
       data: { user }
-    } = await supabase.auth.getUser();
+    } =
+      await supabase.auth.getUser();
 
     setUser(user);
   }
@@ -1638,7 +1895,8 @@ function Account({
         </div>
       ) : (
         <p className="mt-4 text-white/50">
-          You are currently browsing as a guest.
+          You are currently browsing as a
+          guest.
         </p>
       )}
     </Modal>
@@ -1657,9 +1915,12 @@ function Modal({
   return (
     <div className="fixed inset-0 z-[60] overflow-y-auto bg-black/80 p-4">
       <div
-        className={`relative mx-auto my-8 rounded-3xl border border-white/10 bg-neutral-950 p-6 ${
-          wide ? 'max-w-6xl' : 'max-w-xl'
-        }`}
+        className={
+          'relative mx-auto my-8 rounded-3xl border border-white/10 bg-neutral-950 p-6 ' +
+          (wide
+            ? 'max-w-6xl'
+            : 'max-w-xl')
+        }
       >
         <button
           onClick={onClose}
@@ -1673,6 +1934,3 @@ function Modal({
     </div>
   );
 }
-
-export default App;
-```
