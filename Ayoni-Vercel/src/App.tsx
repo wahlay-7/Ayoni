@@ -58,7 +58,6 @@ const formatPrice = (value: number) =>
     currency: 'NGN',
     maximumFractionDigits: 0
   }).format(value);
-```ts
 async function api(
   path: string,
   options: RequestInit = {}
