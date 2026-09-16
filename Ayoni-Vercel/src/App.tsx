@@ -2,7 +2,6 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import {
   ArrowRight,
-  CheckCircle2,
   Edit3,
   ImagePlus,
   LogIn,
@@ -18,7 +17,6 @@ import {
   UserRound,
   X
 } from 'lucide-react';
-
 import { hasSupabase, supabase } from './supabase';
 import { seedProducts } from '../lib/products';
 
@@ -72,7 +70,7 @@ async function api(path: string, options: RequestInit = {}) {
   }
 
   if (session?.access_token) {
-    headers.set('Authorization', `Bearer ${session.access_token}`);
+    headers.set('Authorization', 'Bearer ' + session.access_token);
   }
 
   const r = await fetch(path, {
@@ -131,8 +129,8 @@ function App() {
       setUser(data.user);
     });
 
-    const { data } = supabase.auth.onAuthStateChange((_e, s) => {
-      setUser(s?.user || null);
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user || null);
     });
 
     return () => data.subscription.unsubscribe();
@@ -170,12 +168,12 @@ function App() {
   );
 
   const total = cart.reduce(
-    (s, x) => s + x.price * x.quantity,
+    (sum, item) => sum + Number(item.price) * item.quantity,
     0
   );
 
   const count = cart.reduce(
-    (s, x) => s + x.quantity,
+    (sum, item) => sum + item.quantity,
     0
   );
 
@@ -200,25 +198,26 @@ function App() {
       )?.quantity || 0;
 
     if (stock !== undefined && current >= stock) {
-      return setNotice('That variant is out of stock');
+      setNotice('That variant is out of stock');
+      return;
     }
 
-    setCart(c => {
-      const e = c.find(
+    setCart(currentCart => {
+      const existing = currentCart.find(
         x =>
           x.id === p.id &&
           x.size === size &&
           x.color === color
       );
 
-      return e
-        ? c.map(x =>
-            x === e
+      return existing
+        ? currentCart.map(x =>
+            x === existing
               ? { ...x, quantity: x.quantity + 1 }
               : x
           )
         : [
-            ...c,
+            ...currentCart,
             {
               ...p,
               quantity: 1,
@@ -229,7 +228,6 @@ function App() {
     });
 
     setNotice('Added to bag');
-
     setTimeout(() => setNotice(''), 1200);
   };
 
@@ -249,8 +247,7 @@ function App() {
         )}`
       );
 
-      const grand =
-        total + Number(sh.fee || 0);
+      const grand = total + Number(sh.fee || 0);
 
       const r = await api('/api/orders', {
         method: 'POST',
@@ -325,9 +322,7 @@ function App() {
         <nav>
           {['All', 'Clothing', 'Shoes', 'Eyewear'].map(x => (
             <button
-              className={
-                category === x ? 'active' : ''
-              }
+              className={category === x ? 'active' : ''}
               key={x}
               onClick={() => setCategory(x)}
             >
@@ -342,9 +337,7 @@ function App() {
 
             <input
               value={search}
-              onChange={e =>
-                setSearch(e.target.value)
-              }
+              onChange={e => setSearch(e.target.value)}
               placeholder="Search"
             />
           </label>
@@ -400,9 +393,7 @@ function App() {
 
       <section className="hero">
         <div>
-          <p className="eyebrow">
-            ILORIN · KWARA
-          </p>
+          <p className="eyebrow">ILORIN · KWARA</p>
 
           <h1>
             Wear your
@@ -445,16 +436,11 @@ function App() {
       <section id="shop" className="shop">
         <div className="section-head">
           <div>
-            <p className="eyebrow">
-              THE COLLECTION
-            </p>
-
+            <p className="eyebrow">THE COLLECTION</p>
             <h2>Selected pieces</h2>
           </div>
 
-          <span>
-            {filtered.length} pieces
-          </span>
+          <span>{filtered.length} pieces</span>
         </div>
 
         <div className="grid">
@@ -475,9 +461,7 @@ function App() {
       </section>
 
       <section className="manifesto">
-        <p className="eyebrow">
-          WHY AYONI
-        </p>
+        <p className="eyebrow">WHY AYONI</p>
 
         <h2>
           Simple forms.
@@ -511,15 +495,11 @@ function App() {
           Nigeria
         </p>
 
-        <button
-          onClick={() => setAdmin(true)}
-        >
+        <button onClick={() => setAdmin(true)}>
           Admin
         </button>
 
-        <button
-          onClick={() => setAccount(true)}
-        >
+        <button onClick={() => setAccount(true)}>
           My orders
         </button>
       </footer>
@@ -531,44 +511,39 @@ function App() {
         >
           <aside
             className="drawer"
-            onClick={e =>
-              e.stopPropagation()
-            }
+            onClick={e => e.stopPropagation()}
           >
             <div className="drawer-head">
               <h2>Your bag</h2>
 
               <button
                 className="icon-btn"
-                onClick={() =>
-                  setDrawer(false)
-                }
+                onClick={() => setDrawer(false)}
               >
                 <X />
               </button>
             </div>
 
             {cart.length ? (
-              cart.map((x, i) => (
+              cart.map((item, i) => (
                 <div
                   className="cart-item"
                   key={i}
                 >
                   <img
-                    src={x.image}
-                    alt={x.name}
+                    src={item.image}
+                    alt={item.name}
                   />
 
                   <div>
-                    <h3>{x.name}</h3>
+                    <h3>{item.name}</h3>
 
                     <span>
-                      {money(x.price)} · Qty{' '}
-                      {x.quantity}
+                      {money(item.price)} · Qty {item.quantity}
                     </span>
 
                     <p>
-                      {[x.size, x.color]
+                      {[item.size, item.color]
                         .filter(Boolean)
                         .join(' · ')}
                     </p>
@@ -583,17 +558,14 @@ function App() {
 
             <div className="cart-total">
               <span>Total</span>
-              <strong>
-                {money(total)}
-              </strong>
+
+              <strong>{money(total)}</strong>
             </div>
 
             {cart.length > 0 && (
               <button
                 className="primary wide"
-                onClick={() =>
-                  setCheckout(true)
-                }
+                onClick={() => setCheckout(true)}
               >
                 Checkout
               </button>
@@ -614,17 +586,14 @@ function App() {
               <button
                 type="button"
                 className="icon-btn"
-                onClick={() =>
-                  setCheckout(false)
-                }
+                onClick={() => setCheckout(false)}
               >
                 <X />
               </button>
             </div>
 
             <p className="checkout-note">
-              Delivery is calculated by
-              destination state.
+              Delivery is calculated by destination state.
             </p>
 
             <input
@@ -643,9 +612,7 @@ function App() {
               name="email"
               type="email"
               required
-              defaultValue={
-                user?.email || ''
-              }
+              defaultValue={user?.email || ''}
               placeholder="Email address"
             />
 
@@ -688,9 +655,7 @@ function variantKey(
   size?: string,
   color?: string
 ) {
-  return `${size || 'default'}::${
-    color || 'default'
-  }`;
+  return `${size || 'default'}::${color || 'default'}`;
 }
 
 function ProductCard({
@@ -1024,9 +989,7 @@ function AdminLogin({
             type="password"
             value={password}
             onChange={e =>
-              setPassword(
-                e.target.value
-              )
+              setPassword(e.target.value)
             }
             required
             placeholder="Password"
@@ -1117,11 +1080,6 @@ function AdminPanel({
     try {
       let image = p.image || '';
 
-      /*
-       * DIRECT SUPABASE STORAGE UPLOAD
-       * This replaces the old /api/products/upload
-       * base64 upload.
-       */
       if (file) {
         if (!supabase) {
           throw new Error(
@@ -1189,25 +1147,27 @@ function AdminPanel({
           p.image_urls || []
       };
 
-      const r = editing
-        ? await api(
-            `/api/products/${editing.id}`,
-            {
-              method: 'PUT',
-              body: JSON.stringify(
-                payload
-              )
-            }
-          )
-        : await api(
-            '/api/products',
-            {
-              method: 'POST',
-              body: JSON.stringify(
-                payload
-              )
-            }
-          );
+      if (editing) {
+        await api(
+          `/api/products/${editing.id}`,
+          {
+            method: 'PUT',
+            body: JSON.stringify(
+              payload
+            )
+          }
+        );
+      } else {
+        await api(
+          '/api/products',
+          {
+            method: 'POST',
+            body: JSON.stringify(
+              payload
+            )
+          }
+        );
+      }
 
       setMsg(
         editing
@@ -1217,10 +1177,6 @@ function AdminPanel({
 
       setEditing(null);
       onSaved();
-
-      if (r.product) {
-        // Product saved successfully.
-      }
     } catch (e) {
       setMsg(
         e instanceof Error
@@ -1237,7 +1193,7 @@ function AdminPanel({
   ) => {
     if (
       !confirm(
-        `Delete “${p.name}”?`
+        `Delete "${p.name}"?`
       )
     ) {
       return;
@@ -1368,8 +1324,7 @@ function AdminPanel({
                 </p>
 
                 <h2>
-                  {products.length}{' '}
-                  products
+                  {products.length} products
                 </h2>
               </div>
 
@@ -1377,8 +1332,7 @@ function AdminPanel({
                 className="secondary"
                 onClick={onSaved}
               >
-                <RefreshCw size={16} />{' '}
-                Refresh
+                <RefreshCw size={16} /> Refresh
               </button>
             </div>
 
@@ -1405,23 +1359,14 @@ function AdminPanel({
                     <span>
                       {p.category} ·{' '}
                       {money(
-                        Number(
-                          p.price
-                        )
+                        Number(p.price)
                       )}
                     </span>
 
                     <small>
-                      {(p.sizes || [])
-                        .length}{' '}
-                      sizes ·{' '}
-                      {(p.colors || [])
-                        .length}{' '}
-                      colors ·{' '}
-                      {stockTotal(
-                        p.stock
-                      )}{' '}
-                      units
+                      {(p.sizes || []).length} sizes ·{' '}
+                      {(p.colors || []).length} colors ·{' '}
+                      {stockTotal(p.stock)} units
                     </small>
                   </div>
 
@@ -1501,9 +1446,7 @@ function ProductEditor({
     useState<string[]>([]);
 
   const [stock, setStock] =
-    useState<Record<string, number>>(
-      {}
-    );
+    useState<Record<string, number>>({});
 
   const [image, setImage] =
     useState('');
@@ -1608,6 +1551,7 @@ function ProductEditor({
 
         {product && (
           <button
+            type="button"
             className="icon-btn"
             onClick={onCancel}
           >
@@ -1624,9 +1568,7 @@ function ProductEditor({
           <div className="preview">
             {file ? (
               <img
-                src={URL.createObjectURL(
-                  file
-                )}
+                src={URL.createObjectURL(file)}
                 alt="Preview"
               />
             ) : image ? (
@@ -1646,13 +1588,11 @@ function ProductEditor({
 
           <div>
             <b>
-              <Upload size={16} />{' '}
-              Choose photo
+              <Upload size={16} /> Choose photo
             </b>
 
             <small>
-              JPG, PNG or WebP · max
-              5MB
+              JPG, PNG or WebP · max 5MB
             </small>
           </div>
 
@@ -1685,15 +1625,9 @@ function ProductEditor({
               )
             }
           >
-            <option>
-              Clothing
-            </option>
-            <option>
-              Shoes
-            </option>
-            <option>
-              Eyewear
-            </option>
+            <option>Clothing</option>
+            <option>Shoes</option>
+            <option>Eyewear</option>
           </select>
 
           <input
@@ -1745,8 +1679,7 @@ function ProductEditor({
                 type="number"
                 min="0"
                 value={
-                  stock[v.key] ??
-                  0
+                  stock[v.key] ?? 0
                 }
                 onChange={e =>
                   setStock({
@@ -1952,8 +1885,7 @@ function OrderManager({
           onClick={onRefresh}
           disabled={loading}
         >
-          <RefreshCw size={16} />{' '}
-          Refresh
+          <RefreshCw size={16} /> Refresh
         </button>
       </div>
 
