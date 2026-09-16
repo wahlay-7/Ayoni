@@ -1,5 +1,7 @@
+
 import { adminDb, errorResponse, json, requireAdmin } from '../lib/supabase.js';
 import { seedProducts } from '../lib/products.js';
+ 
 export async function GET() {
   const { data, error } = await adminDb.from('products').select('*').order('created_at', { ascending: false });
   if (error) return errorResponse(error.message, 500);
@@ -10,7 +12,7 @@ export async function GET() {
   }
   return json({ products: data });
 }
-
+ 
 export async function POST(request: Request) {
   try {
     await requireAdmin(request);
@@ -22,5 +24,5 @@ export async function POST(request: Request) {
     return json({ product: data }, 201);
   } catch (e) { return errorResponse(e instanceof Error ? e.message : 'Unauthorized', 401); }
 }
-
+ 
 function normalizeProduct(body:any){return {name:String(body.name||'').trim(),category:String(body.category||'Clothing'),price:Number(body.price||0),image:String(body.image||''),description:String(body.description||''),sizes:Array.isArray(body.sizes)?body.sizes:[],colors:Array.isArray(body.colors)?body.colors:[],stock:body.stock&&typeof body.stock==='object'?body.stock:{},image_urls:Array.isArray(body.imageUrls)?body.imageUrls:(Array.isArray(body.image_urls)?body.image_urls:[])}}
