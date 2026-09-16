@@ -19,7 +19,6 @@ import {
 } from 'lucide-react';
 import { hasSupabase, supabase } from './supabase';
 import { seedProducts } from '../lib/products';
-
 type Product = {
   id: string;
   name: string;
@@ -33,13 +32,11 @@ type Product = {
   image_urls?: string[] | null;
   created_at?: string;
 };
-
 type CartItem = Product & {
   quantity: number;
   selectedSize?: string;
   selectedColor?: string;
 };
-
 type Order = {
   id: string;
   customer: {
@@ -55,60 +52,64 @@ type Order = {
   payment_status?: string;
   created_at?: string;
 };
-
 const formatPrice = (value: number) =>
   new Intl.NumberFormat('en-NG', {
     style: 'currency',
     currency: 'NGN',
     maximumFractionDigits: 0
   }).format(value);
-
+```ts
 async function api(
   path: string,
   options: RequestInit = {}
 ): Promise<any> {
   let token = '';
-
   if (supabase) {
-    const {
-      data: { session }
-    } = await supabase.auth.getSession();
-
-    token = session?.access_token || '';
+    const sessionResult = await supabase.auth.getSession();
+    token =
+      sessionResult.data.session?.access_token || '';
   }
-
   const headers = new Headers(options.headers);
 
   if (!(options.body instanceof FormData)) {
     headers.set('Content-Type', 'application/json');
   }
-
   if (token) {
-    headers.set('Authorization', `Bearer ${token}`);
+    headers.set(
+      'Authorization',
+      'Bearer ' + token
+    );
   }
-
   const response = await fetch(path, {
     ...options,
     headers
   });
 
-  const contentType = response.headers.get('content-type') || '';
-  const data = contentType.includes('application/json')
-    ? await response.json()
-    : await response.text();
+  const contentType =
+    response.headers.get('content-type') || '';
+
+  let data: any;
+
+  if (contentType.includes('application/json')) {
+    data = await response.json();
+  } else {
+    data = await response.text();
+  }
 
   if (!response.ok) {
     const message =
       typeof data === 'object' && data?.error
         ? data.error
-        : `Request failed (${response.status})`;
+        : 'Request failed (' +
+          response.status +
+          ')';
 
     throw new Error(message);
   }
 
   return data;
 }
-
+```
 function App() {
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
