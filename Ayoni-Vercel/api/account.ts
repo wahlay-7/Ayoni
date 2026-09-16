@@ -1,0 +1,2 @@
+import { adminDb, errorResponse, json, requireUser } from '../lib/supabase';
+export async function GET(request:Request){try{const user=await requireUser(request);const {data,error}=await adminDb.from('orders').select('*').eq('user_id',user.id).order('created_at',{ascending:false});if(error)return errorResponse(error.message,500);return json({user:{id:user.id,email:user.email},orders:data||[]})}catch(e){return errorResponse(e instanceof Error?e.message:'Authentication required',401)}}

@@ -1,0 +1,6 @@
+export const seedProducts = [
+ { name:'Ayoni Signature Tee', category:'Clothing', price:18500, image:'/images/tee.svg', description:'A clean everyday cotton tee with a relaxed unisex fit.', sizes:['S','M','L','XL'], colors:['Black','White'], stock:{'S::Black':10,'M::Black':12,'L::Black':10,'XL::Black':6,'S::White':8,'M::White':10,'L::White':8,'XL::White':5}, image_urls:[] },
+ { name:'Everyday Court Sneaker', category:'Shoes', price:42000, image:'/images/sneaker.svg', description:'Minimal everyday sneakers designed for movement.', sizes:['39','40','41','42','43','44'], colors:['White'], stock:{'39::White':2,'40::White':4,'41::White':6,'42::White':6,'43::White':4,'44::White':2}, image_urls:[] },
+ { name:'Aero Frame', category:'Eyewear', price:24000, image:'/images/eyewear.svg', description:'A clean statement frame with a lightweight feel.', sizes:['One Size'], colors:['Black'], stock:{'One Size::Black':12}, image_urls:[] },
+ { name:'Relaxed Utility Shirt', category:'Clothing', price:29500, image:'/images/shirt.svg', description:'A versatile relaxed shirt built for everyday layering.', sizes:['M','L','XL'], colors:['Sand','Black'], stock:{'M::Sand':5,'L::Sand':6,'XL::Sand':4,'M::Black':5,'L::Black':6,'XL::Black':4}, image_urls:[] }
+];
