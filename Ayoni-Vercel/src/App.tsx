@@ -25,43 +25,57 @@ type Product = {
   name: string;
   category: string;
   price: number;
-  image: string;
+  image: string | null;
   description: string;
   sizes: string[];
   colors: string[];
   stock: Record<string, number>;
-  image_urls?: string[];
+  image_urls?: string[] | null;
   created_at?: string;
 };
 
 type CartItem = Product & {
   quantity: number;
-  size?: string;
-  color?: string;
+  selectedSize?: string;
+  selectedColor?: string;
 };
 
 type Order = {
   id: string;
-  customer: any;
-  items: any[];
+  customer: {
+    name?: string;
+    email?: string;
+    phone?: string;
+    address?: string;
+    city?: string;
+  };
+  items: CartItem[];
   total: number;
   status: string;
-  payment_status: string;
-  paystack_reference?: string;
-  created_at: string;
+  payment_status?: string;
+  created_at?: string;
 };
 
-const money = (n: number) =>
+const formatPrice = (value: number) =>
   new Intl.NumberFormat('en-NG', {
     style: 'currency',
     currency: 'NGN',
     maximumFractionDigits: 0
-  }).format(n);
+  }).format(value);
 
-async function api(path: string, options: RequestInit = {}) {
-  const session = supabase
-    ? (await supabase.auth.getSession()).data.session
-    : null;
+async function api(
+  path: string,
+  options: RequestInit = {}
+): Promise<any> {
+  let token = '';
+
+  if (supabase) {
+    const {
+      data: { session }
+    } = await supabase.auth.getSession();
+
+    token = session?.access_token || '';
+  }
 
   const headers = new Headers(options.headers);
 
@@ -69,767 +83,779 @@ async function api(path: string, options: RequestInit = {}) {
     headers.set('Content-Type', 'application/json');
   }
 
-  if (session?.access_token) {
-    headers.set('Authorization', 'Bearer ' + session.access_token);
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
   }
 
-  const r = await fetch(path, {
+  const response = await fetch(path, {
     ...options,
     headers
   });
 
-  const body = await r.json().catch(() => ({}));
+  const contentType = response.headers.get('content-type') || '';
+  const data = contentType.includes('application/json')
+    ? await response.json()
+    : await response.text();
 
-  if (!r.ok) {
-    throw new Error(body.error || 'Request failed');
+  if (!response.ok) {
+    const message =
+      typeof data === 'object' && data?.error
+        ? data.error
+        : `Request failed (${response.status})`;
+
+    throw new Error(message);
   }
 
-  return body;
+  return data;
 }
 
 function App() {
   const [products, setProducts] = useState<Product[]>([]);
-  const [category, setCategory] = useState('All');
-  const [search, setSearch] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [drawer, setDrawer] = useState(false);
-  const [checkout, setCheckout] = useState(false);
-  const [admin, setAdmin] = useState(false);
-  const [account, setAccount] = useState(false);
-  const [user, setUser] = useState<any>(null);
-  const [notice, setNotice] = useState('');
-
-  const loadProducts = () =>
-    api('/api/products')
-      .then(r =>
-        setProducts(
-          r.products?.length
-            ? r.products
-            : seedProducts.map((p, i) => ({
-                ...p,
-                id: `demo-${i + 1}`
-              }))
-        )
-      )
-      .catch(() =>
-        setProducts(
-          seedProducts.map((p, i) => ({
-            ...p,
-            id: `demo-${i + 1}`
-          }))
-        )
-      );
+  const [search, setSearch] = useState('');
+  const [category, setCategory] = useState('All');
+  const [showCart, setShowCart] = useState(false);
+  const [showCheckout, setShowCheckout] = useState(false);
+  const [showAdmin, setShowAdmin] = useState(false);
+  const [showAccount, setShowAccount] = useState(false);
+  const [toast, setToast] = useState('');
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     loadProducts();
-
-    if (!supabase) return;
-
-    supabase.auth.getUser().then(({ data }) => {
-      setUser(data.user);
-    });
-
-    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user || null);
-    });
-
-    return () => data.subscription.unsubscribe();
   }, []);
 
   useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    const ref = params.get('reference');
+    if (!supabase) return;
 
-    if (ref) {
-      api(
-        `/api/paystack/verify?reference=${encodeURIComponent(ref)}`
-      )
-        .then(r =>
-          setNotice(
-            r.paid
-              ? 'Payment confirmed. Thank you!'
-              : 'Payment could not be confirmed.'
-          )
-        )
-        .catch(() => setNotice('Payment verification failed.'));
+    const {
+      data: { subscription }
+    } = supabase.auth.onAuthStateChange(() => {
+      // Auth state is handled by the admin/account components.
+    });
 
-      history.replaceState({}, '', location.pathname);
-    }
+    return () => subscription.unsubscribe();
   }, []);
 
-  const filtered = useMemo(
-    () =>
-      products.filter(
-        p =>
-          (category === 'All' || p.category === category) &&
-          p.name.toLowerCase().includes(search.toLowerCase())
-      ),
-    [products, category, search]
-  );
+  async function loadProducts() {
+    setLoading(true);
 
-  const total = cart.reduce(
-    (sum, item) => sum + Number(item.price) * item.quantity,
+    try {
+      const result = await api('/api/products');
+
+      if (Array.isArray(result?.products)) {
+        setProducts(result.products);
+      } else {
+        setProducts(seedProducts as Product[]);
+      }
+    } catch {
+      setProducts(
+        seedProducts.map((product, i) => ({
+          ...product,
+          id: `demo-${i + 1}`
+        })) as Product[]
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const categories = useMemo(() => {
+    const values = products.map((product) => product.category);
+    return ['All', ...Array.from(new Set(values))];
+  }, [products]);
+
+  const filteredProducts = useMemo(() => {
+    const term = search.trim().toLowerCase();
+
+    return products.filter((product) => {
+      const matchesCategory =
+        category === 'All' || product.category === category;
+
+      const matchesSearch =
+        !term ||
+        product.name.toLowerCase().includes(term) ||
+        product.category.toLowerCase().includes(term) ||
+        product.description?.toLowerCase().includes(term);
+
+      return matchesCategory && matchesSearch;
+    });
+  }, [products, search, category]);
+
+  const cartTotal = cart.reduce(
+    (total, item) => total + item.price * item.quantity,
     0
   );
 
-  const count = cart.reduce(
-    (sum, item) => sum + item.quantity,
+  const cartCount = cart.reduce(
+    (total, item) => total + item.quantity,
     0
   );
 
-  const add = (
-    p: Product,
-    size?: string,
-    color?: string
-  ) => {
-    const key = variantKey(size, color);
+  function addToCart(product: Product) {
+    setCart((current) => {
+      const existing = current.find((item) => item.id === product.id);
 
-    const stock =
-      p.stock?.[key] ??
-      p.stock?.[size || 'default'] ??
-      p.stock?.default;
+      if (existing) {
+        return current.map((item) =>
+          item.id === product.id
+            ? { ...item, quantity: item.quantity + 1 }
+            : item
+        );
+      }
 
-    const current =
-      cart.find(
-        x =>
-          x.id === p.id &&
-          x.size === size &&
-          x.color === color
-      )?.quantity || 0;
+      return [
+        ...current,
+        {
+          ...product,
+          quantity: 1
+        }
+      ];
+    });
 
-    if (stock !== undefined && current >= stock) {
-      setNotice('That variant is out of stock');
+    setToast(`${product.name} added to cart`);
+
+    setTimeout(() => setToast(''), 2500);
+  }
+
+  function removeFromCart(id: string) {
+    setCart((current) =>
+      current.filter((item) => item.id !== id)
+    );
+  }
+
+  function updateQuantity(id: string, quantity: number) {
+    if (quantity <= 0) {
+      removeFromCart(id);
       return;
     }
 
-    setCart(currentCart => {
-      const existing = currentCart.find(
-        x =>
-          x.id === p.id &&
-          x.size === size &&
-          x.color === color
-      );
+    setCart((current) =>
+      current.map((item) =>
+        item.id === id ? { ...item, quantity } : item
+      )
+    );
+  }
 
-      return existing
-        ? currentCart.map(x =>
-            x === existing
-              ? { ...x, quantity: x.quantity + 1 }
-              : x
-          )
-        : [
-            ...currentCart,
-            {
-              ...p,
-              quantity: 1,
-              size,
-              color
-            }
-          ];
-    });
+  async function submitOrder(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
 
-    setNotice('Added to bag');
-    setTimeout(() => setNotice(''), 1200);
-  };
+    const form = new FormData(event.currentTarget);
 
-  const submit = async (
-    e: FormEvent<HTMLFormElement>
-  ) => {
-    e.preventDefault();
+    const customer = {
+      name: String(form.get('name') || ''),
+      email: String(form.get('email') || ''),
+      phone: String(form.get('phone') || ''),
+      address: String(form.get('address') || ''),
+      city: String(form.get('city') || '')
+    };
+
+    if (!cart.length) {
+      setToast('Your cart is empty.');
+      return;
+    }
 
     try {
-      const f = Object.fromEntries(
-        new FormData(e.currentTarget)
-      );
-
-      const sh = await api(
-        `/api/shipping?state=${encodeURIComponent(
-          String(f.state)
-        )}`
-      );
-
-      const grand = total + Number(sh.fee || 0);
-
-      const r = await api('/api/orders', {
+      const shipping = await api('/api/orders', {
         method: 'POST',
         body: JSON.stringify({
-          customer: f,
+          customer,
           items: cart,
-          total: grand
+          total: cartTotal
         })
       });
 
       setCart([]);
-      setCheckout(false);
-      setDrawer(false);
+      setShowCheckout(false);
+      setShowCart(false);
 
-      if (r.paymentUrl) {
-        location.href = r.paymentUrl;
-      } else {
-        const number =
-          r.whatsappNumber ||
-          import.meta.env.VITE_AYONI_WHATSAPP_NUMBER ||
-          '';
-
-        if (number) {
-          window.open(
-            `https://wa.me/${number.replace(
-              /\D/g,
-              ''
-            )}?text=${encodeURIComponent(
-              `Hello Ayoni, order ${r.orderId}. Total ${money(
-                grand
-              )}. Name: ${f.name}`
-            )}`,
-            '_blank'
-          );
-        }
-
-        setNotice('Order received.');
+      if (shipping?.paymentUrl) {
+        window.location.href = shipping.paymentUrl;
+        return;
       }
-    } catch (err) {
-      setNotice(
-        err instanceof Error
-          ? err.message
-          : 'Could not place order'
+
+      const whatsappNumber =
+        import.meta.env.VITE_AYONI_WHATSAPP_NUMBER || '';
+
+      if (whatsappNumber) {
+        const message = [
+          'Hello Ayoni, I would like to place an order.',
+          '',
+          `Name: ${customer.name}`,
+          `Phone: ${customer.phone}`,
+          `City: ${customer.city}`,
+          '',
+          ...cart.map(
+            (item) =>
+              `${item.name} x${item.quantity} — ${formatPrice(
+                item.price * item.quantity
+              )}`
+          ),
+          '',
+          `Total: ${formatPrice(cartTotal)}`
+        ].join('\n');
+
+        window.open(
+          `https://wa.me/${whatsappNumber.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`,
+          '_blank',
+          'noopener,noreferrer'
+        );
+      }
+
+      setToast('Order received successfully.');
+    } catch (error) {
+      setToast(
+        error instanceof Error
+          ? error.message
+          : 'Unable to place order.'
       );
     }
-  };
-
-  if (admin) {
-    return (
-      <Admin
-        products={products}
-        onBack={() => setAdmin(false)}
-        onSaved={loadProducts}
-      />
-    );
-  }
-
-  if (account) {
-    return (
-      <Account
-        onBack={() => setAccount(false)}
-        user={user}
-      />
-    );
   }
 
   return (
-    <div className="site">
-      <header className="header">
-        <div className="logo">AYONI</div>
+    <div className="min-h-screen bg-neutral-950 text-white">
+      <header className="sticky top-0 z-40 border-b border-white/10 bg-neutral-950/95 backdrop-blur">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 md:px-6">
+          <button
+            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+            className="text-2xl font-bold tracking-[0.2em]"
+          >
+            AYONI
+          </button>
 
-        <nav>
-          {['All', 'Clothing', 'Shoes', 'Eyewear'].map(x => (
-            <button
-              className={category === x ? 'active' : ''}
-              key={x}
-              onClick={() => setCategory(x)}
+          <nav className="hidden items-center gap-8 md:flex">
+            <a href="#shop" className="text-sm text-white/70 hover:text-white">
+              Shop
+            </a>
+            <a
+              href="#manifesto"
+              className="text-sm text-white/70 hover:text-white"
             >
-              {x}
+              Manifesto
+            </a>
+            <button
+              onClick={() => setShowAdmin(true)}
+              className="text-sm text-white/70 hover:text-white"
+            >
+              Admin
             </button>
-          ))}
-        </nav>
+          </nav>
 
-        <div className="head-actions">
-          <label className="search">
-            <Search size={17} />
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowAccount(true)}
+              className="rounded-full p-2 hover:bg-white/10"
+              aria-label="Account"
+            >
+              <UserRound size={20} />
+            </button>
 
-            <input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search"
-            />
-          </label>
+            <button
+              onClick={() => setShowCart(true)}
+              className="relative rounded-full p-2 hover:bg-white/10"
+              aria-label="Shopping bag"
+            >
+              <ShoppingBag size={20} />
 
-          <button
-            className="icon-btn"
-            onClick={async () => {
-              if (user) {
-                if (supabase) {
-                  await supabase.auth.signOut();
-                }
-
-                setUser(null);
-              } else {
-                if (!hasSupabase) {
-                  setNotice(
-                    'Customer accounts are enabled after Supabase is connected.'
-                  );
-                  return;
-                }
-
-                const email = prompt('Email');
-                const password = prompt('Password');
-
-                if (email && password) {
-                  const r =
-                    await supabase!.auth.signInWithPassword({
-                      email,
-                      password
-                    });
-
-                  if (r.error) {
-                    setNotice(r.error.message);
-                  } else {
-                    setUser(r.data.user);
-                  }
-                }
-              }
-            }}
-          >
-            {user ? <LogOut /> : <UserRound />}
-          </button>
-
-          <button
-            className="bag"
-            onClick={() => setDrawer(true)}
-          >
-            <ShoppingBag />
-            <span>{count}</span>
-          </button>
+              {cartCount > 0 && (
+                <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-white px-1 text-xs font-bold text-black">
+                  {cartCount}
+                </span>
+              )}
+            </button>
+          </div>
         </div>
       </header>
 
-      <section className="hero">
-        <div>
-          <p className="eyebrow">ILORIN · KWARA</p>
+      <main>
+        <section className="relative overflow-hidden border-b border-white/10">
+          <div className="mx-auto grid min-h-[650px] max-w-7xl items-center gap-12 px-4 py-20 md:grid-cols-2 md:px-6">
+            <div>
+              <p className="mb-5 text-sm uppercase tracking-[0.4em] text-white/50">
+                Ilorin · Kwara · Nigeria
+              </p>
 
-          <h1>
-            Wear your
-            <br />
-            <em>own rhythm.</em>
-          </h1>
+              <h1 className="max-w-3xl text-5xl font-bold leading-[0.95] tracking-tight md:text-7xl">
+                Everyday style.
+                <br />
+                Elevated.
+              </h1>
 
-          <p className="hero-copy">
-            Modern essentials for people who move
-            differently. Unisex clothing, footwear
-            and eyewear, curated by Ayoni.
-          </p>
+              <p className="mt-7 max-w-xl text-lg leading-8 text-white/60">
+                Contemporary unisex fashion designed for movement,
+                expression and everyday confidence.
+              </p>
 
-          <button
-            className="primary"
-            onClick={() =>
-              document
-                .getElementById('shop')
-                ?.scrollIntoView({
-                  behavior: 'smooth'
-                })
-            }
-          >
-            Shop collection <ArrowRight />
-          </button>
-        </div>
+              <a
+                href="#shop"
+                className="mt-9 inline-flex items-center gap-3 rounded-full bg-white px-6 py-3 font-medium text-black transition hover:bg-white/80"
+              >
+                Explore collection
+                <ArrowRight size={18} />
+              </a>
+            </div>
 
-        <div className="hero-art">
-          <div className="hero-card">
-            <span>AYONI / 01</span>
-            <strong>
-              EVERYDAY
-              <br />
-              FORM
-            </strong>
+            <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5">
+              <div className="aspect-[4/5] flex items-center justify-center">
+                <ShoppingBag size={80} className="text-white/20" />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="shop" className="mx-auto max-w-7xl px-4 py-20 md:px-6">
+          <div className="mb-10 flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
+            <div>
+              <p className="text-sm uppercase tracking-[0.3em] text-white/40">
+                Collection
+              </p>
+
+              <h2 className="mt-2 text-4xl font-bold">
+                Shop Ayoni
+              </h2>
+            </div>
+
+            <div className="flex flex-col gap-3 md:items-end">
+              <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2">
+                <Search size={17} className="text-white/40" />
+
+                <input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search products"
+                  className="w-52 bg-transparent text-sm outline-none placeholder:text-white/30"
+                />
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {categories.map((item) => (
+                  <button
+                    key={item}
+                    onClick={() => setCategory(item)}
+                    className={`rounded-full px-4 py-2 text-xs ${
+                      category === item
+                        ? 'bg-white text-black'
+                        : 'border border-white/10 text-white/60 hover:text-white'
+                    }`}
+                  >
+                    {item}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {loading ? (
+            <div className="flex min-h-[300px] items-center justify-center">
+              <RefreshCw className="animate-spin text-white/40" />
+            </div>
+          ) : filteredProducts.length === 0 ? (
+            <div className="rounded-3xl border border-white/10 p-12 text-center text-white/50">
+              No products found.
+            </div>
+          ) : (
+            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {filteredProducts.map((product) => (
+                <ProductCard
+                  key={product.id}
+                  product={product}
+                  onAdd={() => addToCart(product)}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section
+          id="manifesto"
+          className="border-y border-white/10 bg-white/[0.03]"
+        >
+          <div className="mx-auto max-w-5xl px-4 py-24 text-center md:px-6">
+            <ShieldCheck className="mx-auto mb-6 text-white/40" size={32} />
+
+            <h2 className="text-4xl font-bold md:text-6xl">
+              Wear your identity.
+            </h2>
+
+            <p className="mx-auto mt-7 max-w-2xl text-lg leading-8 text-white/50">
+              Ayoni brings together modern clothing, footwear and
+              eyewear for people who want simple pieces with strong
+              character.
+            </p>
+          </div>
+        </section>
+      </main>
+
+      <footer className="border-t border-white/10">
+        <div className="mx-auto flex max-w-7xl flex-col gap-5 px-4 py-10 text-sm text-white/40 md:flex-row md:items-center md:justify-between md:px-6">
+          <p>© {new Date().getFullYear()} Ayoni. Ilorin, Kwara.</p>
+
+          <div className="flex gap-5">
+            <button onClick={() => setShowAdmin(true)}>
+              Admin
+            </button>
+
+            <button onClick={() => setShowAccount(true)}>
+              Account
+            </button>
           </div>
         </div>
-      </section>
-
-      <section id="shop" className="shop">
-        <div className="section-head">
-          <div>
-            <p className="eyebrow">THE COLLECTION</p>
-            <h2>Selected pieces</h2>
-          </div>
-
-          <span>{filtered.length} pieces</span>
-        </div>
-
-        <div className="grid">
-          {filtered.map(p => (
-            <ProductCard
-              key={p.id}
-              p={p}
-              onAdd={add}
-            />
-          ))}
-        </div>
-
-        {!filtered.length && (
-          <div className="empty-state">
-            No products match your search.
-          </div>
-        )}
-      </section>
-
-      <section className="manifesto">
-        <p className="eyebrow">WHY AYONI</p>
-
-        <h2>
-          Simple forms.
-          <br />
-          <em>Strong presence.</em>
-        </h2>
-
-        <div className="manifesto-grid">
-          <p>
-            Designed around versatility, Ayoni
-            brings considered silhouettes and
-            everyday accessories into one unisex
-            wardrobe.
-          </p>
-
-          <div>
-            <ShieldCheck />
-            <span>Secure checkout</span>
-
-            <Package />
-            <span>State-based delivery</span>
-          </div>
-        </div>
-      </section>
-
-      <footer>
-        <div className="logo">AYONI</div>
-
-        <p>
-          Modern essentials · Ilorin, Kwara,
-          Nigeria
-        </p>
-
-        <button onClick={() => setAdmin(true)}>
-          Admin
-        </button>
-
-        <button onClick={() => setAccount(true)}>
-          My orders
-        </button>
       </footer>
 
-      {drawer && (
-        <div
-          className="overlay"
-          onClick={() => setDrawer(false)}
-        >
-          <aside
-            className="drawer"
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="drawer-head">
-              <h2>Your bag</h2>
-
-              <button
-                className="icon-btn"
-                onClick={() => setDrawer(false)}
-              >
-                <X />
-              </button>
-            </div>
-
-            {cart.length ? (
-              cart.map((item, i) => (
-                <div
-                  className="cart-item"
-                  key={i}
-                >
-                  <img
-                    src={item.image}
-                    alt={item.name}
-                  />
-
-                  <div>
-                    <h3>{item.name}</h3>
-
-                    <span>
-                      {money(item.price)} · Qty {item.quantity}
-                    </span>
-
-                    <p>
-                      {[item.size, item.color]
-                        .filter(Boolean)
-                        .join(' · ')}
-                    </p>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <p className="empty">
-                Your bag is empty.
-              </p>
-            )}
-
-            <div className="cart-total">
-              <span>Total</span>
-
-              <strong>{money(total)}</strong>
-            </div>
-
-            {cart.length > 0 && (
-              <button
-                className="primary wide"
-                onClick={() => setCheckout(true)}
-              >
-                Checkout
-              </button>
-            )}
-          </aside>
-        </div>
+      {showCart && (
+        <CartDrawer
+          cart={cart}
+          total={cartTotal}
+          onClose={() => setShowCart(false)}
+          onRemove={removeFromCart}
+          onQuantity={updateQuantity}
+          onCheckout={() => {
+            if (!cart.length) return;
+            setShowCart(false);
+            setShowCheckout(true);
+          }}
+        />
       )}
 
-      {checkout && (
-        <div className="overlay">
-          <form
-            className="checkout"
-            onSubmit={submit}
-          >
-            <div className="drawer-head">
-              <h2>Checkout</h2>
-
-              <button
-                type="button"
-                className="icon-btn"
-                onClick={() => setCheckout(false)}
-              >
-                <X />
-              </button>
-            </div>
-
-            <p className="checkout-note">
-              Delivery is calculated by destination state.
-            </p>
-
-            <input
-              name="name"
-              required
-              placeholder="Full name"
-            />
-
-            <input
-              name="phone"
-              required
-              placeholder="Phone number"
-            />
-
-            <input
-              name="email"
-              type="email"
-              required
-              defaultValue={user?.email || ''}
-              placeholder="Email address"
-            />
-
-            <input
-              name="address"
-              required
-              placeholder="Delivery address"
-            />
-
-            <select
-              name="state"
-              defaultValue="Kwara"
-            >
-              <option>Kwara</option>
-              <option>Lagos</option>
-              <option>Abuja</option>
-              <option>Other</option>
-            </select>
-
-            <button className="primary wide">
-              Continue · {money(total)}
-            </button>
-          </form>
-        </div>
+      {showCheckout && (
+        <Checkout
+          cart={cart}
+          total={cartTotal}
+          onClose={() => setShowCheckout(false)}
+          onSubmit={submitOrder}
+        />
       )}
 
-      {notice && (
-        <div
-          className="toast"
-          onClick={() => setNotice('')}
-        >
-          {notice}
+      {showAdmin && (
+        <Admin
+          products={products}
+          onClose={() => setShowAdmin(false)}
+          onProductsChanged={loadProducts}
+        />
+      )}
+
+      {showAccount && (
+        <Account onClose={() => setShowAccount(false)} />
+      )}
+
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 z-[100] -translate-x-1/2 rounded-full bg-white px-5 py-3 text-sm font-medium text-black shadow-2xl">
+          {toast}
         </div>
       )}
     </div>
   );
 }
 
-function variantKey(
-  size?: string,
-  color?: string
-) {
-  return `${size || 'default'}::${color || 'default'}`;
-}
-
 function ProductCard({
-  p,
+  product,
   onAdd
 }: {
-  p: Product;
-  onAdd: (
-    p: Product,
-    s?: string,
-    c?: string
-  ) => void;
+  product: Product;
+  onAdd: () => void;
 }) {
-  const [size, setSize] = useState(
-    p.sizes?.[0] || ''
-  );
-
-  const [color, setColor] = useState(
-    p.colors?.[0] || ''
-  );
-
   const image =
-    p.image ||
-    p.image_urls?.[0] ||
-    '';
+    product.image || product.image_urls?.[0] || '';
 
   return (
-    <article className="product">
-      <div className="product-image">
+    <article className="group overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03]">
+      <div className="relative aspect-[4/5] overflow-hidden bg-white/5">
         {image ? (
           <img
             src={image}
-            alt={p.name}
+            alt={product.name}
+            className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
           />
         ) : (
-          <div className="image-placeholder">
-            AYONI
+          <div className="flex h-full items-center justify-center">
+            <ImagePlus size={42} className="text-white/15" />
           </div>
         )}
 
         <button
-          onClick={() =>
-            onAdd(
-              p,
-              size,
-              color
-            )
-          }
+          onClick={onAdd}
+          className="absolute bottom-4 left-4 right-4 flex items-center justify-center gap-2 rounded-full bg-white py-3 text-sm font-medium text-black opacity-0 transition group-hover:opacity-100"
         >
-          <Plus />
+          <Plus size={17} />
+          Add to bag
         </button>
       </div>
 
-      <div className="product-info">
-        <div>
-          <span>{p.category}</span>
+      <div className="p-5">
+        <p className="text-xs uppercase tracking-[0.2em] text-white/35">
+          {product.category}
+        </p>
 
-          <h3>{p.name}</h3>
+        <h3 className="mt-2 font-medium">
+          {product.name}
+        </h3>
 
-          {p.sizes?.length > 0 && (
-            <select
-              value={size}
-              onChange={e =>
-                setSize(e.target.value)
-              }
-            >
-              {p.sizes.map(s => (
-                <option key={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          )}
-
-          {p.colors?.length > 0 && (
-            <select
-              value={color}
-              onChange={e =>
-                setColor(e.target.value)
-              }
-            >
-              {p.colors.map(c => (
-                <option key={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-          )}
-        </div>
-
-        <strong>
-          {money(Number(p.price))}
-        </strong>
+        <p className="mt-2 font-semibold">
+          {formatPrice(product.price)}
+        </p>
       </div>
     </article>
   );
 }
 
-function Account({
-  onBack,
-  user
+function CartDrawer({
+  cart,
+  total,
+  onClose,
+  onRemove,
+  onQuantity,
+  onCheckout
 }: {
-  onBack: () => void;
-  user: any;
+  cart: CartItem[];
+  total: number;
+  onClose: () => void;
+  onRemove: (id: string) => void;
+  onQuantity: (id: string, quantity: number) => void;
+  onCheckout: () => void;
 }) {
-  const [d, setD] = useState<any>();
-
-  useEffect(() => {
-    if (user) {
-      api('/api/account')
-        .then(setD)
-        .catch(e =>
-          setD({
-            error: e.message
-          })
-        );
-    }
-  }, [user]);
-
   return (
-    <div className="admin">
-      <header className="admin-head">
-        <div>
-          <p className="eyebrow">
-            AYONI ACCOUNT
-          </p>
+    <div className="fixed inset-0 z-50">
+      <div
+        className="absolute inset-0 bg-black/70"
+        onClick={onClose}
+      />
 
-          <h1>My orders</h1>
+      <aside className="absolute right-0 top-0 flex h-full w-full max-w-md flex-col border-l border-white/10 bg-neutral-950">
+        <div className="flex items-center justify-between border-b border-white/10 p-5">
+          <div>
+            <p className="text-xs uppercase tracking-[0.2em] text-white/40">
+              Shopping
+            </p>
+            <h2 className="text-xl font-semibold">Your bag</h2>
+          </div>
+
+          <button
+            onClick={onClose}
+            className="rounded-full p-2 hover:bg-white/10"
+          >
+            <X size={20} />
+          </button>
         </div>
 
-        <button
-          className="secondary"
-          onClick={onBack}
-        >
-          Back
-        </button>
-      </header>
+        <div className="flex-1 overflow-y-auto p-5">
+          {cart.length === 0 ? (
+            <div className="flex h-full flex-col items-center justify-center text-center">
+              <ShoppingBag
+                size={45}
+                className="text-white/20"
+              />
+              <p className="mt-4 text-white/50">
+                Your bag is empty.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-5">
+              {cart.map((item) => (
+                <div
+                  key={item.id}
+                  className="flex gap-4 border-b border-white/10 pb-5"
+                >
+                  <div className="h-24 w-20 overflow-hidden rounded-xl bg-white/5">
+                    {item.image || item.image_urls?.[0] ? (
+                      <img
+                        src={
+                          item.image ||
+                          item.image_urls?.[0] ||
+                          ''
+                        }
+                        alt={item.name}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : null}
+                  </div>
 
-      <div className="panel">
-        {user ? (
-          d?.orders?.length ? (
-            d.orders.map((o: any) => (
-              <div
-                className="order-row"
-                key={o.id}
-              >
-                <div>
-                  <b>
-                    #{o.id.slice(0, 8)}
-                  </b>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex justify-between gap-3">
+                      <h3 className="font-medium">
+                        {item.name}
+                      </h3>
+
+                      <button
+                        onClick={() => onRemove(item.id)}
+                        className="text-white/30 hover:text-white"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+
+                    <p className="mt-1 text-sm text-white/50">
+                      {formatPrice(item.price)}
+                    </p>
+
+                    <div className="mt-3 flex items-center gap-3">
+                      <button
+                        onClick={() =>
+                          onQuantity(
+                            item.id,
+                            item.quantity - 1
+                          )
+                        }
+                        className="h-7 w-7 rounded-full border border-white/10"
+                      >
+                        −
+                      </button>
+
+                      <span className="text-sm">
+                        {item.quantity}
+                      </span>
+
+                      <button
+                        onClick={() =>
+                          onQuantity(
+                            item.id,
+                            item.quantity + 1
+                          )
+                        }
+                        className="h-7 w-7 rounded-full border border-white/10"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {cart.length > 0 && (
+          <div className="border-t border-white/10 p-5">
+            <div className="mb-5 flex items-center justify-between">
+              <span className="text-white/50">Total</span>
+              <span className="text-xl font-bold">
+                {formatPrice(total)}
+              </span>
+            </div>
+
+            <button
+              onClick={onCheckout}
+              className="w-full rounded-full bg-white py-3 font-medium text-black hover:bg-white/80"
+            >
+              Checkout
+            </button>
+          </div>
+        )}
+      </aside>
+    </div>
+  );
+}
+
+function Checkout({
+  cart,
+  total,
+  onClose,
+  onSubmit
+}: {
+  cart: CartItem[];
+  total: number;
+  onClose: () => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-neutral-950">
+      <div className="mx-auto min-h-screen max-w-3xl px-4 py-8 md:px-6">
+        <div className="mb-10 flex items-center justify-between">
+          <div>
+            <p className="text-xs uppercase tracking-[0.2em] text-white/40">
+              Ayoni
+            </p>
+            <h1 className="text-3xl font-bold">
+              Checkout
+            </h1>
+          </div>
+
+          <button
+            onClick={onClose}
+            className="rounded-full p-2 hover:bg-white/10"
+          >
+            <X />
+          </button>
+        </div>
+
+        <div className="grid gap-10 md:grid-cols-[1fr_300px]">
+          <form onSubmit={onSubmit} className="space-y-5">
+            <input
+              name="name"
+              required
+              placeholder="Full name"
+              className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 outline-none focus:border-white/30"
+            />
+
+            <input
+              name="email"
+              type="email"
+              required
+              placeholder="Email address"
+              className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 outline-none focus:border-white/30"
+            />
+
+            <input
+              name="phone"
+              required
+              placeholder="Phone number"
+              className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 outline-none focus:border-white/30"
+            />
+
+            <input
+              name="city"
+              required
+              placeholder="City"
+              className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 outline-none focus:border-white/30"
+            />
+
+            <textarea
+              name="address"
+              required
+              rows={4}
+              placeholder="Delivery address"
+              className="w-full resize-none rounded-xl border border-white/10 bg-white/5 px-4 py-3 outline-none focus:border-white/30"
+            />
+
+            <button
+              type="submit"
+              className="w-full rounded-full bg-white py-4 font-semibold text-black hover:bg-white/80"
+            >
+              Place order · {formatPrice(total)}
+            </button>
+          </form>
+
+          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+            <h2 className="font-semibold">
+              Order summary
+            </h2>
+
+            <div className="mt-5 space-y-4">
+              {cart.map((item) => (
+                <div
+                  key={item.id}
+                  className="flex justify-between gap-4 text-sm"
+                >
+                  <span className="text-white/60">
+                    {item.name} × {item.quantity}
+                  </span>
 
                   <span>
-                    {String(
-                      o.customer?.name ||
-                        'Customer'
-                    )}{' '}
-                    ·{' '}
-                    {money(
-                      Number(o.total)
+                    {formatPrice(
+                      item.price * item.quantity
                     )}
                   </span>
                 </div>
+              ))}
+            </div>
 
-                <span>{o.status}</span>
+            <div className="mt-6 border-t border-white/10 pt-5">
+              <div className="flex justify-between font-semibold">
+                <span>Total</span>
+                <span>{formatPrice(total)}</span>
               </div>
-            ))
-          ) : (
-            <p>No orders yet.</p>
-          )
-        ) : (
-          <p>
-            Sign in to see your orders.
-          </p>
-        )}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -837,63 +863,61 @@ function Account({
 
 function Admin({
   products,
-  onBack,
-  onSaved
+  onClose,
+  onProductsChanged
 }: {
   products: Product[];
-  onBack: () => void;
-  onSaved: () => void;
+  onClose: () => void;
+  onProductsChanged: () => Promise<void>;
 }) {
-  const [sessionUser, setSessionUser] =
-    useState<any>(null);
-
-  const [checking, setChecking] =
-    useState(true);
-
-  const [email, setEmail] =
-    useState('');
-
-  const [password, setPassword] =
-    useState('');
-
-  const [loginMsg, setLoginMsg] =
-    useState('');
-
-  const [tab, setTab] =
-    useState<'products' | 'orders'>(
-      'products'
-    );
+  const [user, setUser] = useState<any>(null);
+  const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    supabase?.auth
-      .getUser()
-      .then(({ data }) => {
-        setSessionUser(data.user);
-        setChecking(false);
-      });
+    checkUser();
   }, []);
+
+  async function checkUser() {
+    if (!supabase) {
+      setChecking(false);
+      return;
+    }
+
+    const {
+      data: { user }
+    } = await supabase.auth.getUser();
+
+    setUser(user);
+    setChecking(false);
+  }
 
   if (checking) {
     return (
-      <div className="admin loading">
-        Checking admin access…
-      </div>
+      <Modal onClose={onClose}>
+        <RefreshCw className="animate-spin" />
+      </Modal>
     );
   }
 
-  if (!sessionUser) {
+  if (!hasSupabase || !supabase) {
+    return (
+      <Modal onClose={onClose}>
+        <h2 className="text-2xl font-bold">
+          Supabase not connected
+        </h2>
+
+        <p className="mt-3 text-white/50">
+          Configure the Supabase environment variables in Vercel.
+        </p>
+      </Modal>
+    );
+  }
+
+  if (!user) {
     return (
       <AdminLogin
-        email={email}
-        setEmail={setEmail}
-        password={password}
-        setPassword={setPassword}
-        msg={loginMsg}
-        setMsg={setLoginMsg}
-        onBack={onBack}
-        onSuccess={u =>
-          setSessionUser(u)
-        }
+        onClose={onClose}
+        onLogin={checkUser}
       />
     );
   }
@@ -901,729 +925,595 @@ function Admin({
   return (
     <AdminPanel
       products={products}
-      onBack={onBack}
-      onSaved={onSaved}
-      tab={tab}
-      setTab={setTab}
-      user={sessionUser}
+      onClose={onClose}
+      onProductsChanged={onProductsChanged}
     />
   );
 }
 
 function AdminLogin({
-  email,
-  setEmail,
-  password,
-  setPassword,
-  msg,
-  setMsg,
-  onBack,
-  onSuccess
+  onClose,
+  onLogin
 }: {
-  email: string;
-  setEmail: (v: string) => void;
-  password: string;
-  setPassword: (v: string) => void;
-  msg: string;
-  setMsg: (v: string) => void;
-  onBack: () => void;
-  onSuccess: (u: any) => void;
+  onClose: () => void;
+  onLogin: () => Promise<void>;
 }) {
-  const submit = async (
-    e: FormEvent
-  ) => {
-    e.preventDefault();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-    setMsg('Signing in…');
+  async function submit(event: FormEvent) {
+    event.preventDefault();
 
-    const r =
-      await supabase!.auth.signInWithPassword({
-        email,
-        password
-      });
+    if (!supabase) return;
 
-    if (r.error) {
-      setMsg(r.error.message);
+    setLoading(true);
+    setError('');
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password
+    });
+
+    if (error) {
+      setError(error.message);
+      setLoading(false);
       return;
     }
 
-    onSuccess(r.data.user);
-  };
+    await onLogin();
+    setLoading(false);
+  }
 
   return (
-    <div className="admin">
-      <div className="admin-login">
-        <div className="logo">
-          AYONI
-        </div>
+    <Modal onClose={onClose}>
+      <div className="mx-auto max-w-md">
+        <LogIn className="mb-5" />
 
-        <p className="eyebrow">
-          PRIVATE ADMIN
+        <h2 className="text-3xl font-bold">
+          Admin login
+        </h2>
+
+        <p className="mt-2 text-white/50">
+          Sign in to manage Ayoni products and orders.
         </p>
 
-        <h1>
-          Store control room
-        </h1>
-
-        <p>
-          Sign in with the Supabase account
-          whose email matches{' '}
-          <b>
-            AYONI_ADMIN_EMAIL
-          </b>{' '}
-          in Vercel.
-        </p>
-
-        <form onSubmit={submit}>
+        <form
+          onSubmit={submit}
+          className="mt-8 space-y-4"
+        >
           <input
             type="email"
-            value={email}
-            onChange={e =>
-              setEmail(e.target.value)
-            }
             required
+            value={email}
+            onChange={(event) =>
+              setEmail(event.target.value)
+            }
             placeholder="Admin email"
+            className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 outline-none"
           />
 
           <input
             type="password"
-            value={password}
-            onChange={e =>
-              setPassword(e.target.value)
-            }
             required
+            value={password}
+            onChange={(event) =>
+              setPassword(event.target.value)
+            }
             placeholder="Password"
+            className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 outline-none"
           />
 
-          <button className="primary wide">
-            <LogIn /> Sign in
+          {error && (
+            <p className="text-sm text-red-400">
+              {error}
+            </p>
+          )}
+
+          <button
+            disabled={loading}
+            className="flex w-full items-center justify-center gap-2 rounded-full bg-white py-3 font-medium text-black disabled:opacity-50"
+          >
+            {loading && (
+              <RefreshCw
+                size={16}
+                className="animate-spin"
+              />
+            )}
+            Sign in
           </button>
         </form>
-
-        {msg && (
-          <p className="form-msg">
-            {msg}
-          </p>
-        )}
-
-        <button
-          className="secondary wide"
-          onClick={onBack}
-        >
-          Back to store
-        </button>
       </div>
-    </div>
+    </Modal>
   );
 }
 
 function AdminPanel({
   products,
-  onBack,
-  onSaved,
-  tab,
-  setTab,
-  user
+  onClose,
+  onProductsChanged
 }: {
   products: Product[];
-  onBack: () => void;
-  onSaved: () => void;
-  tab: 'products' | 'orders';
-  setTab: (
-    v: 'products' | 'orders'
-  ) => void;
-  user: any;
+  onClose: () => void;
+  onProductsChanged: () => Promise<void>;
 }) {
-  const [editing, setEditing] =
-    useState<Product | null>(null);
+  const [editing, setEditing] = useState<Product | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [loadingOrders, setLoadingOrders] = useState(false);
 
-  const [orders, setOrders] =
-    useState<Order[]>([]);
-
-  const [msg, setMsg] =
-    useState('');
-
-  const [loading, setLoading] =
-    useState(false);
-
-  const loadOrders = async () => {
-    setLoading(true);
+  async function loadOrders() {
+    setLoadingOrders(true);
 
     try {
-      const r =
-        await api('/api/orders');
-
-      setOrders(r.orders || []);
-    } catch (e) {
-      setMsg(
-        e instanceof Error
-          ? e.message
-          : 'Could not load orders'
-      );
+      const result = await api('/api/orders');
+      setOrders(result.orders || []);
+    } catch {
+      setOrders([]);
     } finally {
-      setLoading(false);
+      setLoadingOrders(false);
     }
-  };
+  }
 
   useEffect(() => {
-    if (tab === 'orders') {
-      loadOrders();
-    }
-  }, [tab]);
+    loadOrders();
+  }, []);
 
-  const saveProduct = async (
-    p: Partial<Product>,
-    file?: File
-  ) => {
-    setLoading(true);
-
-    try {
-      let image = p.image || '';
-
-      if (file) {
-        if (!supabase) {
-          throw new Error(
-            'Supabase is not connected.'
-          );
-        }
-
-        if (
-          file.size >
-          5 * 1024 * 1024
-        ) {
-          throw new Error(
-            'Image must be 5MB or smaller.'
-          );
-        }
-
-        const extension =
-          file.name
-            .split('.')
-            .pop()
-            ?.toLowerCase() ||
-          'jpg';
-
-        const filePath =
-          `products/${crypto.randomUUID()}.${extension}`;
-
-        const {
-          error: uploadError
-        } = await supabase.storage
-          .from('product-images')
-          .upload(
-            filePath,
-            file,
-            {
-              contentType:
-                file.type,
-              cacheControl:
-                '3600',
-              upsert: false
-            }
-          );
-
-        if (uploadError) {
-          throw new Error(
-            uploadError.message
-          );
-        }
-
-        const {
-          data: publicUrlData
-        } = supabase.storage
-          .from('product-images')
-          .getPublicUrl(
-            filePath
-          );
-
-        image =
-          publicUrlData.publicUrl;
-      }
-
-      const payload = {
-        ...p,
-        image,
-        imageUrls:
-          p.image_urls || []
-      };
-
-      if (editing) {
-        await api(
-          `/api/products/${editing.id}`,
-          {
-            method: 'PUT',
-            body: JSON.stringify(
-              payload
-            )
-          }
-        );
-      } else {
-        await api(
-          '/api/products',
-          {
-            method: 'POST',
-            body: JSON.stringify(
-              payload
-            )
-          }
-        );
-      }
-
-      setMsg(
-        editing
-          ? 'Product updated.'
-          : 'Product published.'
-      );
-
-      setEditing(null);
-      onSaved();
-    } catch (e) {
-      setMsg(
-        e instanceof Error
-          ? e.message
-          : 'Could not save product'
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const deleteProduct = async (
-    p: Product
-  ) => {
-    if (
-      !confirm(
-        `Delete "${p.name}"?`
-      )
-    ) {
-      return;
-    }
-
-    setLoading(true);
-
-    try {
-      await api(
-        `/api/products/${p.id}`,
-        {
-          method: 'DELETE'
-        }
-      );
-
-      setMsg(
-        'Product deleted.'
-      );
-
-      onSaved();
-    } catch (e) {
-      setMsg(
-        e instanceof Error
-          ? e.message
-          : 'Could not delete product'
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
+  async function logout() {
+    await supabase?.auth.signOut();
+    onClose();
+  }
 
   return (
-    <div className="admin">
-      <header className="admin-head">
-        <div>
-          <p className="eyebrow">
-            AYONI MANAGEMENT
-          </p>
+    <Modal onClose={onClose} wide>
+      <div className="flex flex-col gap-8">
+        <div className="flex flex-col justify-between gap-4 border-b border-white/10 pb-6 md:flex-row md:items-center">
+          <div>
+            <p className="text-xs uppercase tracking-[0.2em] text-white/40">
+              Ayoni dashboard
+            </p>
 
-          <h1>
-            Store control room
-          </h1>
+            <h2 className="text-3xl font-bold">
+              Store management
+            </h2>
+          </div>
 
-          <span>
-            {user.email}
-          </span>
+          <div className="flex gap-2">
+            <button
+              onClick={loadOrders}
+              className="flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-sm"
+            >
+              <RefreshCw
+                size={15}
+                className={
+                  loadingOrders ? 'animate-spin' : ''
+                }
+              />
+              Refresh
+            </button>
+
+            <button
+              onClick={logout}
+              className="flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-sm"
+            >
+              <LogOut size={15} />
+              Logout
+            </button>
+          </div>
         </div>
 
-        <div className="admin-actions">
-          <button
-            className={
-              tab === 'products'
-                ? 'tab active'
-                : 'tab'
-            }
-            onClick={() =>
-              setTab('products')
-            }
-          >
-            Products
-          </button>
+        <section>
+          <div className="mb-5 flex items-center justify-between">
+            <div>
+              <h3 className="text-xl font-semibold">
+                Products
+              </h3>
 
-          <button
-            className={
-              tab === 'orders'
-                ? 'tab active'
-                : 'tab'
-            }
-            onClick={() =>
-              setTab('orders')
-            }
-          >
-            Orders
-          </button>
-
-          <button
-            className="secondary"
-            onClick={async () => {
-              if (supabase) {
-                await supabase.auth.signOut();
-              }
-
-              onBack();
-            }}
-          >
-            Sign out
-          </button>
-
-          <button
-            className="secondary"
-            onClick={onBack}
-          >
-            Store
-          </button>
-        </div>
-      </header>
-
-      {msg && (
-        <div className="admin-message">
-          {msg}
-
-          <button
-            onClick={() =>
-              setMsg('')
-            }
-          >
-            <X size={16} />
-          </button>
-        </div>
-      )}
-
-      {tab === 'products' ? (
-        <div className="admin-products">
-          <ProductEditor
-            product={editing}
-            loading={loading}
-            onCancel={() =>
-              setEditing(null)
-            }
-            onSave={saveProduct}
-          />
-
-          <section className="panel">
-            <div className="panel-head">
-              <div>
-                <p className="eyebrow">
-                  CATALOG
-                </p>
-
-                <h2>
-                  {products.length} products
-                </h2>
-              </div>
-
-              <button
-                className="secondary"
-                onClick={onSaved}
-              >
-                <RefreshCw size={16} /> Refresh
-              </button>
+              <p className="text-sm text-white/40">
+                Add, edit or remove products.
+              </p>
             </div>
 
-            <div className="admin-list">
-              {products.map(p => (
+            <button
+              onClick={() => setCreating(true)}
+              className="flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-medium text-black"
+            >
+              <Plus size={16} />
+              Add product
+            </button>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {products.map((product) => (
+              <div
+                key={product.id}
+                className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03]"
+              >
+                <div className="flex h-48 items-center justify-center bg-white/5">
+                  {product.image ||
+                  product.image_urls?.[0] ? (
+                    <img
+                      src={
+                        product.image ||
+                        product.image_urls?.[0] ||
+                        ''
+                      }
+                      alt={product.name}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <ImagePlus
+                      size={40}
+                      className="text-white/20"
+                    />
+                  )}
+                </div>
+
+                <div className="p-4">
+                  <p className="text-xs uppercase tracking-wider text-white/35">
+                    {product.category}
+                  </p>
+
+                  <h4 className="mt-1 font-semibold">
+                    {product.name}
+                  </h4>
+
+                  <p className="mt-2">
+                    {formatPrice(product.price)}
+                  </p>
+
+                  <div className="mt-4 flex gap-2">
+                    <button
+                      onClick={() => setEditing(product)}
+                      className="flex flex-1 items-center justify-center gap-2 rounded-full border border-white/10 py-2 text-sm"
+                    >
+                      <Edit3 size={15} />
+                      Edit
+                    </button>
+
+                    <button
+                      onClick={async () => {
+                        if (
+                          !confirm(
+                            `Delete ${product.name}?`
+                          )
+                        ) {
+                          return;
+                        }
+
+                        try {
+                          await api(
+                            `/api/products/${product.id}`,
+                            {
+                              method: 'DELETE'
+                            }
+                          );
+
+                          await onProductsChanged();
+                        } catch (error) {
+                          alert(
+                            error instanceof Error
+                              ? error.message
+                              : 'Unable to delete product.'
+                          );
+                        }
+                      }}
+                      className="rounded-full border border-red-400/20 px-4 py-2 text-red-400"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="border-t border-white/10 pt-8">
+          <div className="mb-5">
+            <h3 className="text-xl font-semibold">
+              Orders
+            </h3>
+
+            <p className="text-sm text-white/40">
+              Recent customer orders.
+            </p>
+          </div>
+
+          {orders.length === 0 ? (
+            <div className="rounded-2xl border border-white/10 p-8 text-center text-white/40">
+              No orders yet.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {orders.map((order) => (
                 <div
-                  className="admin-product"
-                  key={p.id}
+                  key={order.id}
+                  className="rounded-2xl border border-white/10 p-5"
                 >
-                  <div className="admin-thumb">
-                    {p.image ? (
-                      <img
-                        src={p.image}
-                        alt=""
-                      />
-                    ) : (
-                      <ImagePlus />
-                    )}
+                  <div className="flex flex-col justify-between gap-3 md:flex-row">
+                    <div>
+                      <p className="font-semibold">
+                        {order.customer?.name ||
+                          'Customer'}
+                      </p>
+
+                      <p className="text-sm text-white/40">
+                        {order.customer?.phone}
+                      </p>
+                    </div>
+
+                    <div className="text-left md:text-right">
+                      <p className="font-bold">
+                        {formatPrice(order.total)}
+                      </p>
+
+                      <p className="text-xs uppercase text-white/40">
+                        {order.status}
+                      </p>
+                    </div>
                   </div>
-
-                  <div className="admin-product-main">
-                    <b>{p.name}</b>
-
-                    <span>
-                      {p.category} ·{' '}
-                      {money(
-                        Number(p.price)
-                      )}
-                    </span>
-
-                    <small>
-                      {(p.sizes || []).length} sizes ·{' '}
-                      {(p.colors || []).length} colors ·{' '}
-                      {stockTotal(p.stock)} units
-                    </small>
-                  </div>
-
-                  <button
-                    className="icon-btn"
-                    onClick={() =>
-                      setEditing(p)
-                    }
-                    title="Edit"
-                  >
-                    <Edit3 />
-                  </button>
-
-                  <button
-                    className="icon-btn danger"
-                    onClick={() =>
-                      deleteProduct(p)
-                    }
-                    title="Delete"
-                  >
-                    <Trash2 />
-                  </button>
                 </div>
               ))}
-
-              {!products.length && (
-                <p>
-                  No products yet. Add
-                  your first product.
-                </p>
-              )}
             </div>
-          </section>
-        </div>
-      ) : (
-        <OrderManager
-          orders={orders}
-          loading={loading}
-          onRefresh={loadOrders}
-          onMessage={setMsg}
+          )}
+        </section>
+      </div>
+
+      {(creating || editing) && (
+        <ProductEditor
+          product={editing}
+          onClose={() => {
+            setCreating(false);
+            setEditing(null);
+          }}
+          onSaved={async () => {
+            setCreating(false);
+            setEditing(null);
+            await onProductsChanged();
+          }}
         />
       )}
-    </div>
+    </Modal>
   );
 }
 
 function ProductEditor({
   product,
-  loading,
-  onCancel,
-  onSave
+  onClose,
+  onSaved
 }: {
   product: Product | null;
-  loading: boolean;
-  onCancel: () => void;
-  onSave: (
-    p: Partial<Product>,
-    file?: File
-  ) => Promise<void>;
+  onClose: () => void;
+  onSaved: () => Promise<void>;
 }) {
-  const [name, setName] =
-    useState('');
-
-  const [category, setCategory] =
-    useState('Clothing');
-
-  const [price, setPrice] =
-    useState('');
-
-  const [description, setDescription] =
-    useState('');
-
-  const [sizes, setSizes] =
-    useState<string[]>([]);
-
-  const [colors, setColors] =
-    useState<string[]>([]);
-
-  const [stock, setStock] =
-    useState<Record<string, number>>({});
-
-  const [image, setImage] =
-    useState('');
-
-  const [file, setFile] =
-    useState<File>();
-
-  useEffect(() => {
-    setName(product?.name || '');
-    setCategory(
-      product?.category ||
-        'Clothing'
-    );
-
-    setPrice(
-      product
-        ? String(product.price)
-        : ''
-    );
-
-    setDescription(
-      product?.description || ''
-    );
-
-    setSizes(
-      product?.sizes || []
-    );
-
-    setColors(
-      product?.colors || []
-    );
-
-    setStock(
-      product?.stock || {}
-    );
-
-    setImage(
-      product?.image || ''
-    );
-
-    setFile(undefined);
-  }, [product]);
-
-  const variantList = (
-    sizes.length
-      ? sizes
-      : ['default']
-  ).flatMap(s =>
-    (
-      colors.length
-        ? colors
-        : ['default']
-    ).map(c => ({
-      s,
-      c,
-      key: variantKey(
-        s,
-        c
-      )
-    }))
+  const [name, setName] = useState(product?.name || '');
+  const [category, setCategory] = useState(
+    product?.category || 'Clothing'
+  );
+  const [price, setPrice] = useState(
+    product?.price?.toString() || ''
+  );
+  const [description, setDescription] = useState(
+    product?.description || ''
+  );
+  const [sizes, setSizes] = useState(
+    product?.sizes?.join(', ') || ''
+  );
+  const [colors, setColors] = useState(
+    product?.colors?.join(', ') || ''
+  );
+  const [file, setFile] = useState<File | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [preview, setPreview] = useState<string>(
+    product?.image ||
+      product?.image_urls?.[0] ||
+      ''
   );
 
-  const total =
-    stockTotal(stock);
+  useEffect(() => {
+    if (!file) {
+      setPreview(
+        product?.image ||
+          product?.image_urls?.[0] ||
+          ''
+      );
 
-  const submit = (
-    e: FormEvent
-  ) => {
-    e.preventDefault();
+      return;
+    }
 
-    onSave(
-      {
+    const url = URL.createObjectURL(file);
+    setPreview(url);
+
+    return () => URL.revokeObjectURL(url);
+  }, [file, product]);
+
+  async function saveProduct(event: FormEvent) {
+    event.preventDefault();
+
+    if (!supabase) {
+      alert('Supabase is not connected.');
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      let image = product?.image || null;
+
+      /*
+       * IMPORTANT:
+       * Upload directly from the browser to Supabase Storage.
+       * This avoids sending image data through Vercel.
+       */
+      if (file) {
+        if (file.size > 5 * 1024 * 1024) {
+          throw new Error(
+            'Image must be 5MB or smaller.'
+          );
+        }
+
+        if (!file.type.startsWith('image/')) {
+          throw new Error(
+            'Please select a valid image file.'
+          );
+        }
+
+        const extension =
+          file.name.split('.').pop()?.toLowerCase() ||
+          'jpg';
+
+        const filePath = `products/${crypto.randomUUID()}.${extension}`;
+
+        const { error: uploadError } =
+          await supabase.storage
+            .from('product-images')
+            .upload(filePath, file, {
+              contentType: file.type,
+              cacheControl: '3600',
+              upsert: false
+            });
+
+        if (uploadError) {
+          throw new Error(uploadError.message);
+        }
+
+        const { data: publicUrlData } =
+          supabase.storage
+            .from('product-images')
+            .getPublicUrl(filePath);
+
+        image = publicUrlData.publicUrl;
+      }
+
+      const payload = {
         name,
         category,
         price: Number(price),
+        image,
         description,
-        sizes,
-        colors,
-        stock,
-        image
-      },
-      file
-    );
-  };
+        sizes: sizes
+          .split(',')
+          .map((value) => value.trim())
+          .filter(Boolean),
+        colors: colors
+          .split(',')
+          .map((value) => value.trim())
+          .filter(Boolean),
+        stock: product?.stock || {},
+        imageUrls: product?.image_urls || []
+      };
+
+      if (product) {
+        await api(`/api/products/${product.id}`, {
+          method: 'PUT',
+          body: JSON.stringify(payload)
+        });
+      } else {
+        await api('/api/products', {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        });
+      }
+
+      await onSaved();
+    } catch (error) {
+      alert(
+        error instanceof Error
+          ? error.message
+          : 'Unable to save product.'
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
-    <section className="panel editor">
-      <div className="panel-head">
-        <div>
-          <p className="eyebrow">
-            {product
-              ? 'EDIT PRODUCT'
-              : 'NEW PRODUCT'}
-          </p>
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 p-4">
+      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-white/10 bg-neutral-950 p-6">
+        <div className="mb-6 flex items-center justify-between">
+          <div>
+            <p className="text-xs uppercase tracking-[0.2em] text-white/40">
+              Product
+            </p>
 
-          <h2>
-            {product
-              ? product.name
-              : 'Add product'}
-          </h2>
-        </div>
+            <h3 className="text-2xl font-bold">
+              {product
+                ? 'Edit product'
+                : 'Add product'}
+            </h3>
+          </div>
 
-        {product && (
           <button
-            type="button"
-            className="icon-btn"
-            onClick={onCancel}
+            onClick={onClose}
+            className="rounded-full p-2 hover:bg-white/10"
           >
             <X />
           </button>
-        )}
-      </div>
+        </div>
 
-      <form
-        onSubmit={submit}
-        className="editor-form"
-      >
-        <label className="image-upload">
-          <div className="preview">
-            {file ? (
-              <img
-                src={URL.createObjectURL(file)}
-                alt="Preview"
-              />
-            ) : image ? (
-              <img
-                src={image}
-                alt="Current"
-              />
-            ) : (
-              <>
-                <ImagePlus size={32} />
-                <span>
-                  Upload product photo
-                </span>
-              </>
-            )}
-          </div>
-
+        <form
+          onSubmit={saveProduct}
+          className="space-y-5"
+        >
           <div>
-            <b>
-              <Upload size={16} /> Choose photo
-            </b>
+            <label className="mb-2 block text-sm text-white/50">
+              Product image
+            </label>
 
-            <small>
-              JPG, PNG or WebP · max 5MB
-            </small>
+            <label className="flex aspect-video cursor-pointer items-center justify-center overflow-hidden rounded-2xl border border-dashed border-white/15 bg-white/[0.03]">
+              {preview ? (
+                <img
+                  src={preview}
+                  alt="Product preview"
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <div className="text-center text-white/40">
+                  <Upload
+                    className="mx-auto mb-2"
+                    size={30}
+                  />
+                  <span className="text-sm">
+                    Click to upload image
+                  </span>
+                </div>
+              )}
+
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(event) =>
+                  setFile(
+                    event.target.files?.[0] || null
+                  )
+                }
+              />
+            </label>
+
+            <p className="mt-2 text-xs text-white/30">
+              JPG, PNG or WebP · Maximum 5MB
+            </p>
           </div>
 
           <input
-            type="file"
-            accept="image/jpeg,image/png,image/webp"
-            onChange={e =>
-              setFile(
-                e.target.files?.[0]
-              )
+            required
+            value={name}
+            onChange={(event) =>
+              setName(event.target.value)
             }
+            placeholder="Product name"
+            className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 outline-none"
           />
-        </label>
 
-        <input
-          value={name}
-          onChange={e =>
-            setName(e.target.value)
-          }
-          required
-          placeholder="Product name"
-        />
-
-        <div className="two">
           <select
             value={category}
-            onChange={e =>
-              setCategory(
-                e.target.value
-              )
+            onChange={(event) =>
+              setCategory(event.target.value)
             }
+            className="w-full rounded-xl border border-white/10 bg-neutral-900 px-4 py-3 outline-none"
           >
             <option>Clothing</option>
             <option>Shoes</option>
@@ -1631,363 +1521,156 @@ function ProductEditor({
           </select>
 
           <input
-            value={price}
-            onChange={e =>
-              setPrice(
-                e.target.value
-              )
-            }
+            required
             type="number"
             min="0"
-            required
-            placeholder="Price (NGN)"
+            value={price}
+            onChange={(event) =>
+              setPrice(event.target.value)
+            }
+            placeholder="Price"
+            className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 outline-none"
           />
-        </div>
 
-        <TagInput
-          label="Sizes"
-          values={sizes}
-          setValues={setSizes}
-          placeholder="Add size e.g. M"
-        />
+          <textarea
+            value={description}
+            onChange={(event) =>
+              setDescription(event.target.value)
+            }
+            rows={4}
+            placeholder="Product description"
+            className="w-full resize-none rounded-xl border border-white/10 bg-white/5 px-4 py-3 outline-none"
+          />
 
-        <TagInput
-          label="Colors"
-          values={colors}
-          setValues={setColors}
-          placeholder="Add color e.g. Black"
-        />
+          <input
+            value={sizes}
+            onChange={(event) =>
+              setSizes(event.target.value)
+            }
+            placeholder="Sizes — e.g. S, M, L, XL"
+            className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 outline-none"
+          />
 
-        <div>
-          <div className="field-label">
-            Stock by variant{' '}
-            <span>
-              {total} units
-            </span>
-          </div>
-
-          {variantList.map(v => (
-            <label
-              className="stock-row"
-              key={v.key}
-            >
-              <span>
-                {v.s} · {v.c}
-              </span>
-
-              <input
-                type="number"
-                min="0"
-                value={
-                  stock[v.key] ?? 0
-                }
-                onChange={e =>
-                  setStock({
-                    ...stock,
-                    [v.key]: Math.max(
-                      0,
-                      Number(
-                        e.target.value
-                      )
-                    )
-                  })
-                }
-              />
-            </label>
-          ))}
-        </div>
-
-        <textarea
-          value={description}
-          onChange={e =>
-            setDescription(
-              e.target.value
-            )
-          }
-          placeholder="Product description"
-        />
-
-        <div className="editor-buttons">
-          {product && (
-            <button
-              type="button"
-              className="secondary"
-              onClick={onCancel}
-            >
-              Cancel
-            </button>
-          )}
+          <input
+            value={colors}
+            onChange={(event) =>
+              setColors(event.target.value)
+            }
+            placeholder="Colors — e.g. Black, White"
+            className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 outline-none"
+          />
 
           <button
-            disabled={loading}
-            className="primary wide"
+            type="submit"
+            disabled={saving}
+            className="flex w-full items-center justify-center gap-2 rounded-full bg-white py-4 font-semibold text-black disabled:opacity-50"
           >
-            {loading
-              ? 'Saving…'
+            {saving && (
+              <RefreshCw
+                size={17}
+                className="animate-spin"
+              />
+            )}
+
+            {saving
+              ? 'Saving...'
               : product
-              ? 'Save changes'
-              : 'Publish product'}
+                ? 'Save changes'
+                : 'Create product'}
           </button>
-        </div>
-      </form>
-    </section>
-  );
-}
-
-function TagInput({
-  label,
-  values,
-  setValues,
-  placeholder
-}: {
-  label: string;
-  values: string[];
-  setValues: (
-    v: string[]
-  ) => void;
-  placeholder: string;
-}) {
-  const [value, setValue] =
-    useState('');
-
-  function add() {
-    const v =
-      value.trim();
-
-    if (
-      v &&
-      !values.includes(v)
-    ) {
-      setValues([
-        ...values,
-        v
-      ]);
-
-      setValue('');
-    }
-  }
-
-  return (
-    <div>
-      <div className="field-label">
-        {label}
-      </div>
-
-      <div className="tags">
-        {values.map(v => (
-          <span key={v}>
-            {v}
-
-            <button
-              type="button"
-              onClick={() =>
-                setValues(
-                  values.filter(
-                    x => x !== v
-                  )
-                )
-              }
-            >
-              ×
-            </button>
-          </span>
-        ))}
-      </div>
-
-      <div className="tag-add">
-        <input
-          value={value}
-          onChange={e =>
-            setValue(
-              e.target.value
-            )
-          }
-          onKeyDown={e => {
-            if (
-              e.key === 'Enter'
-            ) {
-              e.preventDefault();
-              add();
-            }
-          }}
-          placeholder={
-            placeholder
-          }
-        />
-
-        <button
-          type="button"
-          className="secondary"
-          onClick={add}
-        >
-          <Plus size={15} /> Add
-        </button>
+        </form>
       </div>
     </div>
   );
 }
 
-function OrderManager({
-  orders,
-  loading,
-  onRefresh,
-  onMessage
+function Account({
+  onClose
 }: {
-  orders: Order[];
-  loading: boolean;
-  onRefresh: () => Promise<void>;
-  onMessage: (v: string) => void;
+  onClose: () => void;
 }) {
-  const update = async (
-    id: string,
-    status: string
-  ) => {
-    try {
-      await api(
-        `/api/orders/${id}`,
-        {
-          method: 'PUT',
-          body: JSON.stringify({
-            status
-          })
-        }
-      );
+  const [user, setUser] = useState<any>(null);
 
-      onMessage(
-        'Order status updated.'
-      );
+  useEffect(() => {
+    loadUser();
+  }, []);
 
-      await onRefresh();
-    } catch (e) {
-      onMessage(
-        e instanceof Error
-          ? e.message
-          : 'Update failed'
-      );
-    }
-  };
+  async function loadUser() {
+    if (!supabase) return;
+
+    const {
+      data: { user }
+    } = await supabase.auth.getUser();
+
+    setUser(user);
+  }
+
+  async function logout() {
+    await supabase?.auth.signOut();
+    setUser(null);
+  }
 
   return (
-    <section className="panel orders-panel">
-      <div className="panel-head">
-        <div>
-          <p className="eyebrow">
-            FULFILMENT
+    <Modal onClose={onClose}>
+      <UserRound size={30} />
+
+      <h2 className="mt-5 text-3xl font-bold">
+        Account
+      </h2>
+
+      {user ? (
+        <div className="mt-6">
+          <p className="text-white/50">
+            Signed in as
           </p>
 
-          <h2>
-            {orders.length} orders
-          </h2>
-        </div>
+          <p className="mt-1">
+            {user.email}
+          </p>
 
-        <button
-          className="secondary"
-          onClick={onRefresh}
-          disabled={loading}
-        >
-          <RefreshCw size={16} /> Refresh
-        </button>
-      </div>
-
-      {orders.map(o => (
-        <div
-          className="order-card"
-          key={o.id}
-        >
-          <div>
-            <b>
-              #{o.id.slice(0, 8)}
-            </b>
-
-            <span>
-              {o.customer?.name ||
-                'Customer'}{' '}
-              ·{' '}
-              {o.customer?.phone ||
-                ''}
-            </span>
-
-            <small>
-              {new Date(
-                o.created_at
-              ).toLocaleString(
-                'en-NG'
-              )}{' '}
-              ·{' '}
-              {money(
-                Number(o.total)
-              )}{' '}
-              · payment:{' '}
-              {o.payment_status}
-            </small>
-
-            <small>
-              {Array.isArray(
-                o.items
-              )
-                ? o.items
-                    .map(
-                      (i: any) =>
-                        `${i.name} × ${i.quantity}${
-                          i.size
-                            ? ` / ${i.size}`
-                            : ''
-                        }${
-                          i.color
-                            ? ` / ${i.color}`
-                            : ''
-                        }`
-                    )
-                    .join(
-                      ' · '
-                    )
-                : ''}
-            </small>
-          </div>
-
-          <select
-            value={o.status}
-            onChange={e =>
-              update(
-                o.id,
-                e.target.value
-              )
-            }
+          <button
+            onClick={logout}
+            className="mt-6 flex items-center gap-2 rounded-full border border-white/10 px-5 py-3"
           >
-            {[
-              'pending',
-              'paid',
-              'processing',
-              'shipped',
-              'delivered',
-              'cancelled'
-            ].map(s => (
-              <option key={s}>
-                {s}
-              </option>
-            ))}
-          </select>
+            <LogOut size={16} />
+            Sign out
+          </button>
         </div>
-      ))}
-
-      {!orders.length && (
-        <div className="empty-state">
-          No orders yet.
-        </div>
+      ) : (
+        <p className="mt-4 text-white/50">
+          You are currently browsing as a guest.
+        </p>
       )}
-    </section>
+    </Modal>
   );
 }
 
-function stockTotal(
-  stock: Record<string, number> = {}
-) {
-  return Object.values(
-    stock || {}
-  ).reduce(
-    (a, b) =>
-      a + Number(b || 0),
-    0
+function Modal({
+  children,
+  onClose,
+  wide = false
+}: {
+  children: React.ReactNode;
+  onClose: () => void;
+  wide?: boolean;
+}) {
+  return (
+    <div className="fixed inset-0 z-[60] overflow-y-auto bg-black/80 p-4">
+      <div
+        className={`relative mx-auto my-8 rounded-3xl border border-white/10 bg-neutral-950 p-6 ${
+          wide ? 'max-w-6xl' : 'max-w-xl'
+        }`}
+      >
+        <button
+          onClick={onClose}
+          className="absolute right-5 top-5 rounded-full p-2 hover:bg-white/10"
+        >
+          <X size={20} />
+        </button>
+
+        {children}
+      </div>
+    </div>
   );
 }
 
