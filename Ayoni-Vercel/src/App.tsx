@@ -1934,3 +1934,5 @@ function Modal({
     </div>
   );
 }
+
+export default App;
