@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { adminDb, errorResponse, getUser, json, requireAdmin } from '../lib/supabase';
+import { adminDb, errorResponse, getUser, json, requireAdmin } from '../lib/supabase.js';
 
 async function paystackInitialize(orderId: string, email: string, amountNaira: number, origin: string) {
   const secret = process.env.PAYSTACK_SECRET_KEY;
