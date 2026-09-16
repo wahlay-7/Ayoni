@@ -1,4 +1,4 @@
-import { adminDb, errorResponse, json, requireAdmin } from '../lib/supabase';
+import { adminDb, errorResponse, json, requireAdmin } from '../lib/supabase.js';
 import { seedProducts } from '../lib/products';
 
 export async function GET() {
